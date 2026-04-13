@@ -242,6 +242,7 @@ function App() {
   const seenChatIdsRef = useRef(new Set());
   const timerRef = useRef(null);
   const cellRefs = useRef([]);
+  const spacePressedRef = useRef(false);
 
   const isLoggedIn = Boolean(token);
   const userMessageCount = useMemo(
@@ -282,6 +283,42 @@ function App() {
       setSessionSeconds((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(intervalId);
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const onKeyDown = (event) => {
+      if (event.code !== "Space" || event.repeat || spacePressedRef.current) return;
+      const tagName = event.target?.tagName?.toLowerCase?.() || "";
+      if (tagName === "input" || tagName === "textarea") return;
+      event.preventDefault();
+      spacePressedRef.current = true;
+      void beginHoldToTalk();
+    };
+
+    const onKeyUp = (event) => {
+      if (event.code !== "Space") return;
+      event.preventDefault();
+      if (!spacePressedRef.current) return;
+      spacePressedRef.current = false;
+      void endHoldToTalk();
+    };
+
+    const onBlur = () => {
+      if (!spacePressedRef.current) return;
+      spacePressedRef.current = false;
+      void endHoldToTalk();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
   }, [isLoggedIn]);
 
   const appendMessage = (message) => setMessages((prev) => [...prev, message]);
@@ -883,6 +920,7 @@ function App() {
               {endingConversation ? "Ending..." : "End call"}
             </button>
           </div>
+          <p className="status-note">Tip: Hold the Talk button or Space to speak, then release to send.</p>
           {liveSttText ? <p className="status-note">{liveSttText}</p> : null}
           {socketError ? <p className="error-note">{socketError}</p> : null}
         </div>
