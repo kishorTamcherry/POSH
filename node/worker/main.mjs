@@ -154,5 +154,10 @@ cli.runApp(
   new ServerOptions({
     agent: fileURLToPath(import.meta.url),
     agentName,
+    requestFunc: async (job) => {
+      const roomName = job.room?.name || "posh-room";
+      const safeRoom = roomName.replace(/[^a-zA-Z0-9_-]/g, "-");
+      await job.accept("POSH Act Agent", `agent-${safeRoom}`);
+    },
   }),
 );
