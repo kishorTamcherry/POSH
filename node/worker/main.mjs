@@ -145,7 +145,7 @@ export default defineAgent({
     });
 
     session.generateReply({
-      instructions: "Greet the user in one short sentence.",
+      instructions: "Greet the user in one short sentence and mention you can help only with POSH Act 2013 topics.",
     });
   },
 });
