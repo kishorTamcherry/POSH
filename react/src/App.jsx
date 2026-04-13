@@ -5,11 +5,222 @@ import "./App.css";
 
 const API_BASE_URL = "http://localhost:4000";
 const TOKEN_STORAGE_KEY = "posh_token";
+const ACCENT = "#7f77dd";
+const NAVY = "#1a1a2e";
+
+const loginStyles = {
+  scene: {
+    minHeight: "100vh",
+    background: "#f5f4f0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "2.5rem 1rem",
+    fontFamily: "'Segoe UI', system-ui, sans-serif",
+  },
+  panel: {
+    background: "#ffffff",
+    borderRadius: "24px",
+    width: "100%",
+    maxWidth: "420px",
+    overflow: "hidden",
+    border: "1px solid #e8e6e0",
+  },
+  panelTop: {
+    background: NAVY,
+    padding: "2rem 2rem 2.5rem",
+  },
+  brandMark: {
+    width: "42px",
+    height: "42px",
+    background: ACCENT,
+    borderRadius: "12px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: "1.5rem",
+  },
+  topTitle: {
+    fontSize: "22px",
+    fontWeight: 500,
+    color: "#ffffff",
+    marginBottom: "6px",
+    lineHeight: 1.3,
+  },
+  topSub: {
+    fontSize: "13px",
+    color: "#a0a0be",
+    lineHeight: 1.6,
+    margin: 0,
+  },
+  stepsRow: {
+    display: "flex",
+    gap: "6px",
+    marginTop: "1.5rem",
+  },
+  panelBody: {
+    padding: "2rem",
+  },
+  fieldLabel: {
+    fontSize: "12px",
+    fontWeight: 500,
+    color: "#888",
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    marginBottom: "8px",
+    display: "block",
+  },
+  infoBox: {
+    background: "#fafaf8",
+    border: "1px solid #e8e6e0",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    fontSize: "13px",
+    color: "#666",
+    marginTop: "1rem",
+    display: "flex",
+    gap: "10px",
+    alignItems: "flex-start",
+  },
+  divider: {
+    height: "1px",
+    background: "#f0ede8",
+    margin: "1.5rem 0",
+  },
+  metaRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    fontSize: "13px",
+    color: "#888",
+  },
+};
+
+function StepPip({ active }) {
+  return (
+    <div
+      style={{
+        height: "3px",
+        borderRadius: "2px",
+        flex: 1,
+        background: active ? ACCENT : "rgba(255,255,255,0.15)",
+        transition: "background 0.3s",
+      }}
+    />
+  );
+}
+
+function PrimaryBtn({ children, onClick, disabled, type = "button" }) {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: "100%",
+        padding: "14px",
+        fontSize: "15px",
+        fontWeight: 500,
+        borderRadius: "12px",
+        border: "none",
+        cursor: disabled ? "not-allowed" : "pointer",
+        background: disabled ? "#c8c6d8" : NAVY,
+        color: "#fff",
+        marginTop: "1.25rem",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "8px",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TextInput({ value, onChange, placeholder, type = "text", error, autoFocus }) {
+  return (
+    <input
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      style={{
+        width: "100%",
+        padding: "13px 16px",
+        fontSize: "15px",
+        borderRadius: "12px",
+        border: `1.5px solid ${error ? "#e24b4a" : "#e8e6e0"}`,
+        background: "#fafaf8",
+        color: NAVY,
+        outline: "none",
+        boxSizing: "border-box",
+      }}
+    />
+  );
+}
+
+function OtpCell({ value, onChange, onKeyDown, onPaste, inputRef, done }) {
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      inputMode="numeric"
+      maxLength={1}
+      value={value}
+      onChange={onChange}
+      onKeyDown={onKeyDown}
+      onPaste={onPaste}
+      style={{
+        width: "48px",
+        minWidth: "48px",
+        maxWidth: "48px",
+        height: "56px",
+        flex: "0 0 48px",
+        textAlign: "center",
+        fontSize: "20px",
+        fontWeight: 500,
+        borderRadius: "12px",
+        border: `1.5px solid ${done ? "#5dcaa5" : "#e8e6e0"}`,
+        background: done ? "#f0fdf8" : "#fafaf8",
+        color: done ? "#085041" : NAVY,
+        outline: "none",
+        caretColor: "transparent",
+      }}
+    />
+  );
+}
+
+function SentBadge({ email }) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "5px 12px",
+        borderRadius: "99px",
+        background: "#eeedfe",
+        border: "1px solid #afa9ec",
+        fontSize: "12px",
+        fontWeight: 500,
+        color: "#3c3489",
+        marginBottom: "1rem",
+      }}
+    >
+      <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: ACCENT }} />
+      <span>{email}</span>
+    </div>
+  );
+}
 
 function App() {
   const [email, setEmail] = useState("demo@posh.app");
-  const [otp, setOtp] = useState("");
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
   const [otpRequested, setOtpRequested] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [emailError, setEmailError] = useState(false);
   const [status, setStatus] = useState("offline");
   const [token, setToken] = useState("");
   const [socketError, setSocketError] = useState("");
@@ -17,6 +228,8 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [endingConversation, setEndingConversation] = useState(false);
+  const [camOn, setCamOn] = useState(false);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
 
   const socketRef = useRef(null);
   const livekitRoomRef = useRef(null);
@@ -25,12 +238,19 @@ function App() {
   const localMicTrackRef = useRef(null);
   const seenTranscriptIdsRef = useRef(new Set());
   const seenChatIdsRef = useRef(new Set());
+  const timerRef = useRef(null);
+  const cellRefs = useRef([]);
 
   const isLoggedIn = Boolean(token);
   const userMessageCount = useMemo(
     () => messages.filter((message) => message.role === "user").length,
     [messages],
   );
+  const sessionTimer = useMemo(() => {
+    const mm = String(Math.floor(sessionSeconds / 60)).padStart(2, "0");
+    const ss = String(sessionSeconds % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  }, [sessionSeconds]);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -46,8 +266,17 @@ function App() {
       if (socketRef.current) socketRef.current.disconnect();
       if (livekitRoomRef.current) livekitRoomRef.current.disconnect();
       avatarBootstrappedRef.current = false;
+      clearInterval(timerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const intervalId = setInterval(() => {
+      setSessionSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [isLoggedIn]);
 
   const appendMessage = (message) => setMessages((prev) => [...prev, message]);
 
@@ -184,7 +413,12 @@ function App() {
   };
 
   const requestOtp = async () => {
+    if (!email || !email.includes("@")) {
+      setEmailError(true);
+      return;
+    }
     setSocketError("");
+    setEmailError(false);
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
@@ -194,7 +428,20 @@ function App() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || "Failed to request OTP.");
       setOtpRequested(true);
+      setOtpDigits(["", "", "", "", "", ""]);
       setStatus("otp-sent");
+      clearInterval(timerRef.current);
+      setCountdown(30);
+      timerRef.current = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      setTimeout(() => cellRefs.current[0]?.focus(), 80);
     } catch (error) {
       setStatus("error");
       setSocketError(error.message);
@@ -205,6 +452,11 @@ function App() {
     event.preventDefault();
     setSocketError("");
     try {
+      const otp = otpDigits.join("");
+      if (otp.length !== 6) {
+        setSocketError("Please enter 6-digit OTP.");
+        return;
+      }
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -215,11 +467,50 @@ function App() {
       setToken(payload.token);
       window.localStorage.setItem(TOKEN_STORAGE_KEY, payload.token);
       setStatus("connecting");
+      clearInterval(timerRef.current);
       connectSocket(payload.token);
     } catch (error) {
       setStatus("error");
       setSocketError(error.message);
     }
+  };
+
+  const handleCellChange = (i, event) => {
+    const value = event.target.value.replace(/\D/g, "").slice(0, 1);
+    setOtpDigits((prev) => {
+      const next = [...prev];
+      next[i] = value;
+      return next;
+    });
+    if (value && i < 5) setTimeout(() => cellRefs.current[i + 1]?.focus(), 0);
+  };
+
+  const handleCellKeyDown = (i, event) => {
+    if (event.key === "Backspace" && !otpDigits[i] && i > 0) {
+      setOtpDigits((prev) => {
+        const next = [...prev];
+        next[i - 1] = "";
+        return next;
+      });
+      cellRefs.current[i - 1]?.focus();
+    }
+  };
+
+  const handlePasteOtp = (event) => {
+    event.preventDefault();
+    const pasted = (event.clipboardData || window.clipboardData)
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, 6);
+    setOtpDigits((prev) => {
+      const next = [...prev];
+      pasted.split("").forEach((ch, index) => {
+        next[index] = ch;
+      });
+      return next;
+    });
+    const nextFocus = Math.min(pasted.length, 5);
+    setTimeout(() => cellRefs.current[nextFocus]?.focus(), 0);
   };
 
   const interruptAi = () => {
@@ -248,6 +539,7 @@ function App() {
     if (avatarContainerRef.current) avatarContainerRef.current.innerHTML = "";
     setLiveSttText("");
     setStatus("offline");
+    setSessionSeconds(0);
   };
 
   const endConversation = async () => {
@@ -293,73 +585,271 @@ function App() {
     }
   };
 
+  const handleTalkPointerDown = async (event) => {
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Ignore capture errors on unsupported environments.
+    }
+    await beginHoldToTalk();
+  };
+
+  const handleTalkPointerUp = async (event) => {
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {
+      // Ignore release errors.
+    }
+    await endHoldToTalk();
+  };
+
   if (!isLoggedIn) {
+    const stepConfig = otpRequested
+      ? {
+          title: "Check your inbox",
+          sub: "Enter the 6-digit code we emailed you. It expires in 10 minutes.",
+          pip: [false, true, false],
+        }
+      : {
+          title: "Welcome back",
+          sub: "Sign in securely with a one-time code sent to your inbox - no password needed.",
+          pip: [true, false, false],
+        };
+    const otpFull = otpDigits.every((digit) => digit !== "");
+
     return (
-      <main className="screen login-screen">
-        <section className="card">
-          <h1>Posh AI Login</h1>
-          <p>Login to start realtime AI avatar conversation.</p>
-          <form onSubmit={handleLogin} className="stack">
-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" />
-            <button type="button" onClick={requestOtp}>
-              {otpRequested ? "Resend OTP" : "Send OTP"}
-            </button>
-            <input value={otp} onChange={(event) => setOtp(event.target.value)} placeholder="Enter OTP" />
-            <button type="submit">Verify OTP & Login</button>
-          </form>
-          {socketError ? <p className="error">{socketError}</p> : null}
+      <main style={loginStyles.scene}>
+        <section style={loginStyles.panel}>
+          <div style={loginStyles.panelTop}>
+            <div style={loginStyles.brandMark}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+                <rect x="2" y="4" width="20" height="16" rx="3" />
+                <path d="M2 8l10 6 10-6" />
+              </svg>
+            </div>
+            <p style={loginStyles.topTitle}>{stepConfig.title}</p>
+            <p style={loginStyles.topSub}>{stepConfig.sub}</p>
+            <div style={loginStyles.stepsRow}>
+              {stepConfig.pip.map((active, index) => (
+                <StepPip key={index} active={active} />
+              ))}
+            </div>
+          </div>
+
+          <div style={loginStyles.panelBody}>
+            {!otpRequested ? (
+              <div>
+                <span style={loginStyles.fieldLabel}>Email address</span>
+                <TextInput
+                  type="email"
+                  value={email}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setEmailError(false);
+                  }}
+                  placeholder="you@example.com"
+                  error={emailError}
+                  autoFocus
+                />
+                <PrimaryBtn onClick={requestOtp}>
+                  Send code
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M22 2L11 13" />
+                    <path d="M22 2L15 22 11 13 2 9l20-7z" />
+                  </svg>
+                </PrimaryBtn>
+              </div>
+            ) : (
+              <form onSubmit={handleLogin}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "1rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOtpRequested(false);
+                      setOtpDigits(["", "", "", "", "", ""]);
+                      clearInterval(timerRef.current);
+                      setCountdown(0);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      color: "#888",
+                      padding: 0,
+                    }}
+                  >
+                    Change email
+                  </button>
+                </div>
+                <SentBadge email={email} />
+                <span style={loginStyles.fieldLabel}>Enter 6-digit code</span>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    marginBottom: "1.25rem",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  {otpDigits.map((digit, index) => (
+                    <OtpCell
+                      key={index}
+                      value={digit}
+                      done={Boolean(digit)}
+                      inputRef={(el) => {
+                        cellRefs.current[index] = el;
+                      }}
+                      onChange={(event) => handleCellChange(index, event)}
+                      onKeyDown={(event) => handleCellKeyDown(index, event)}
+                      onPaste={handlePasteOtp}
+                    />
+                  ))}
+                </div>
+                <PrimaryBtn type="submit" disabled={!otpFull}>
+                  Verify & sign in
+                </PrimaryBtn>
+
+                <div style={loginStyles.divider} />
+                <div style={loginStyles.metaRow}>
+                  {countdown > 0 ? (
+                    <span>
+                      Resend available in <strong>{countdown}s</strong>
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    type="button"
+                    onClick={requestOtp}
+                    disabled={countdown > 0}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: countdown > 0 ? "not-allowed" : "pointer",
+                      fontSize: "13px",
+                      color: countdown > 0 ? "#b8b4d8" : ACCENT,
+                      fontWeight: 500,
+                      padding: 0,
+                    }}
+                  >
+                    Resend code
+                  </button>
+                </div>
+              </form>
+            )}
+            {socketError ? <p className="error">{socketError}</p> : null}
+          </div>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="screen app-screen">
-      <section className="avatar-panel card">
-        <h2>AI Avatar</h2>
-        <div className={`avatar ${status}`}>
-          <div ref={avatarContainerRef} style={{ width: "100%", height: "100%" }} />
-          {avatarLoading ? <span>Connecting avatar...</span> : null}
+    <main className="interview-root">
+      <div className="topbar">
+        <div className="topbar-left">
+          <div className="brand">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+              <rect x="2" y="4" width="20" height="16" rx="3" />
+              <path d="M2 8l10 6 10-6" />
+            </svg>
+          </div>
+          <div className="session-info">
+            <p>AI Interview</p>
+            <span>AI Interviewer · Technical round</span>
+          </div>
         </div>
-        <p className="status">Status: {status}</p>
-        <button
-          onClick={() => {
-            if (socketRef.current) socketRef.current.disconnect();
-            window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-            setToken("");
-            setMessages([]);
-            setStatus("offline");
-          }}
-        >
-          Logout
-        </button>
-        <div className="controls">
-          <button onClick={interruptAi}>Interrupt AI</button>
-          <button onMouseDown={beginHoldToTalk} onMouseUp={endHoldToTalk}>
-            Hold To Talk
+        <div className="live-dot">
+          <div className="dot-pulse" />
+          Live <span className="session-timer">{sessionTimer}</span>
+        </div>
+        <div className="topbar-right">
+          <button className="icon-btn" onClick={interruptAi}>
+            Interrupt
           </button>
-          <button onClick={endConversation} disabled={endingConversation}>
-            {endingConversation ? "Ending..." : "End Conversation"}
+          <button
+            className="icon-btn danger"
+            onClick={() => {
+              disconnectRealtime();
+              window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+              setToken("");
+              setMessages([]);
+            }}
+          >
+            Logout
           </button>
         </div>
-        {liveSttText ? <p className="status">{liveSttText}</p> : null}
-        {socketError ? <p className="error">{socketError}</p> : null}
-        <p className="status">Single pipeline mode: LiveKit worker handles STT/TTS/avatar.</p>
-      </section>
+      </div>
 
-      <section className="transcript-panel card">
-        <h2>Transcript</h2>
-        <p className="meta">User turns: {userMessageCount}</p>
-        <div className="transcript-list">
-          {messages.length === 0 ? <p className="empty">No conversation yet.</p> : null}
-          {messages.map((message) => (
-            <article key={message.id} className={`message ${message.role}`}>
-              <strong>{message.role.toUpperCase()}</strong>
-              <p>{message.text}</p>
-            </article>
-          ))}
+      <div className="main-content">
+        <div className="feeds-col">
+          <div className="video-card">
+            <div className="video-inner">
+              <div ref={avatarContainerRef} className="avatar-host" />
+              {avatarLoading ? <span className="overlay-note">Connecting avatar...</span> : null}
+              <div className={`pip-cam ${camOn ? "cam-on" : ""}`}>
+                <div className="pip-user-avatar">U</div>
+                <span className="pip-cam-label">{camOn ? "Camera on" : "Camera off"}</span>
+                <div className="pip-mic-badge">
+                  <span>{status === "listening" ? "Listening" : "Live"}</span>
+                </div>
+              </div>
+            </div>
+            <div className="video-badge">AI interviewer</div>
+          </div>
         </div>
-      </section>
+
+        <div className="right-col">
+          <div className="transcript-card">
+            <div className="transcript-header">
+              <p>Conversation transcript</p>
+              <span>{messages.length} messages · {userMessageCount} user turns</span>
+            </div>
+            <div className="transcript-body">
+              {messages.length === 0 ? <p className="empty">No conversation yet.</p> : null}
+              {messages.map((message) => {
+                const isUser = message.role === "user";
+                const isAi = message.role === "ai";
+                return (
+                  <div key={message.id} className={`msg ${isUser ? "right" : ""}`}>
+                    <span className={`msg-label ${isAi ? "ai" : isUser ? "user" : "system"}`}>
+                      {isAi ? "AI interviewer" : isUser ? "You" : "System"}
+                    </span>
+                    <div className={`msg-bubble ${isAi ? "ai" : isUser ? "user" : "system"}`}>
+                      {message.text}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="controls-bar">
+            <button
+              className={`ptalk-btn ${status === "listening" ? "talking" : ""}`}
+              onPointerDown={handleTalkPointerDown}
+              onPointerUp={handleTalkPointerUp}
+              onPointerCancel={handleTalkPointerUp}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 1a3 3 0 0 1 3 3v8a3 3 0 0 1-6 0V4a3 3 0 0 1 3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+              <span>{status === "listening" ? "Listening" : "Talk"}</span>
+            </button>
+            <button className="end-btn" onClick={endConversation} disabled={endingConversation}>
+              {endingConversation ? "Ending..." : "End call"}
+            </button>
+          </div>
+          {liveSttText ? <p className="status-note">{liveSttText}</p> : null}
+          {socketError ? <p className="error-note">{socketError}</p> : null}
+        </div>
+      </div>
     </main>
   );
 }
