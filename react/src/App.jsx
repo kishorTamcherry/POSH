@@ -789,8 +789,8 @@ function App() {
             </svg>
           </div>
           <div className="session-info">
-            <p>AI Interview</p>
-            <span>AI Interviewer · Technical round</span>
+            <p>POSH Trainer</p>
+            <span>POSH Act, 2013 · Awareness session</span>
           </div>
         </div>
         <div className="live-dot">
@@ -853,7 +853,7 @@ function App() {
                 return (
                   <div key={message.id} className={`msg ${isUser ? "right" : ""}`}>
                     <span className={`msg-label ${isAi ? "ai" : isUser ? "user" : "system"}`}>
-                      {isAi ? "AI interviewer" : isUser ? "You" : "System"}
+                      {isAi ? "POSH trainer" : isUser ? "You" : "System"}
                     </span>
                     <div className={`msg-bubble ${isAi ? "ai" : isUser ? "user" : "system"}`}>
                       {message.text}
