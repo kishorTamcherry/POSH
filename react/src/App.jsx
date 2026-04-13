@@ -236,6 +236,8 @@ function App() {
   const avatarContainerRef = useRef(null);
   const avatarBootstrappedRef = useRef(false);
   const localMicTrackRef = useRef(null);
+  const camVideoRef = useRef(null);
+  const camStreamRef = useRef(null);
   const seenTranscriptIdsRef = useRef(new Set());
   const seenChatIdsRef = useRef(new Set());
   const timerRef = useRef(null);
@@ -265,6 +267,10 @@ function App() {
     return () => {
       if (socketRef.current) socketRef.current.disconnect();
       if (livekitRoomRef.current) livekitRoomRef.current.disconnect();
+      if (camStreamRef.current) {
+        camStreamRef.current.getTracks().forEach((track) => track.stop());
+        camStreamRef.current = null;
+      }
       avatarBootstrappedRef.current = false;
       clearInterval(timerRef.current);
     };
@@ -368,6 +374,23 @@ function App() {
       await micTrack.mute();
       await room.localParticipant.publishTrack(micTrack, { source: Track.Source.Microphone });
       localMicTrackRef.current = micTrack;
+      try {
+        if (camStreamRef.current) {
+          camStreamRef.current.getTracks().forEach((track) => track.stop());
+          camStreamRef.current = null;
+        }
+        const camStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" },
+        });
+        camStreamRef.current = camStream;
+        if (camVideoRef.current) {
+          camVideoRef.current.srcObject = camStream;
+          void camVideoRef.current.play().catch(() => {});
+        }
+        setCamOn(true);
+      } catch {
+        setCamOn(false);
+      }
       setAvatarLoading(false);
     } catch (error) {
       setSocketError(error.message || "Avatar setup failed.");
@@ -526,6 +549,14 @@ function App() {
       // no-op
     }
     localMicTrackRef.current = null;
+    if (camStreamRef.current) {
+      camStreamRef.current.getTracks().forEach((track) => track.stop());
+      camStreamRef.current = null;
+    }
+    if (camVideoRef.current) {
+      camVideoRef.current.srcObject = null;
+    }
+    setCamOn(false);
 
     if (livekitRoomRef.current) {
       livekitRoomRef.current.disconnect();
@@ -791,8 +822,14 @@ function App() {
               <div ref={avatarContainerRef} className="avatar-host" />
               {avatarLoading ? <span className="overlay-note">Connecting avatar...</span> : null}
               <div className={`pip-cam ${camOn ? "cam-on" : ""}`}>
-                <div className="pip-user-avatar">U</div>
-                <span className="pip-cam-label">{camOn ? "Camera on" : "Camera off"}</span>
+                {camOn ? (
+                  <video ref={camVideoRef} className="pip-cam-video" autoPlay muted playsInline />
+                ) : (
+                  <>
+                    <div className="pip-user-avatar">U</div>
+                    <span className="pip-cam-label">Camera off</span>
+                  </>
+                )}
                 <div className="pip-mic-badge">
                   <span>{status === "listening" ? "Listening" : "Live"}</span>
                 </div>
