@@ -230,6 +230,7 @@ function App() {
   const [endingConversation, setEndingConversation] = useState(false);
   const [camOn, setCamOn] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
+  const [aiSpeaking, setAiSpeaking] = useState(false);
 
   const socketRef = useRef(null);
   const livekitRoomRef = useRef(null);
@@ -322,6 +323,15 @@ function App() {
   }, [isLoggedIn]);
 
   const appendMessage = (message) => setMessages((prev) => [...prev, message]);
+  const upsertMessage = (nextMessage) => {
+    setMessages((prev) => {
+      const index = prev.findIndex((message) => message.id === nextMessage.id);
+      if (index === -1) return [...prev, nextMessage];
+      const updated = [...prev];
+      updated[index] = { ...updated[index], ...nextMessage };
+      return updated;
+    });
+  };
 
   const setupAvatarRoom = async (jwtToken) => {
     if (avatarBootstrappedRef.current) return;
@@ -361,14 +371,27 @@ function App() {
       });
       room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
         const speakerIdentity = participant?.identity || "unknown";
+        // User + agent text comes immediately via worker data channel (posh.user.transcript / posh.ai.transcript).
+        // Room transcription is often delayed (synced to playout); skip here to avoid "nothing until AI finishes".
+        if (
+          speakerIdentity.startsWith("user-") ||
+          speakerIdentity.includes("bey") ||
+          speakerIdentity.startsWith("agent-")
+        ) {
+          return;
+        }
         for (const segment of segments || []) {
-          if (!segment.final || seenTranscriptIdsRef.current.has(segment.id)) continue;
-          seenTranscriptIdsRef.current.add(segment.id);
-          appendMessage({
-            id: `stt-${segment.id}`,
-            role: speakerIdentity.startsWith("user-") ? "user" : "system",
-            text: segment.text,
+          const text = (segment?.text || "").trim();
+          if (!text || !segment?.id) continue;
+          const safeIdentity = speakerIdentity.replace(/[^a-zA-Z0-9_-]/g, "_");
+          upsertMessage({
+            id: `stt-${safeIdentity}-${segment.id}`,
+            role: "system",
+            text,
           });
+          if (segment.final) {
+            seenTranscriptIdsRef.current.add(segment.id);
+          }
         }
       });
       room.on(RoomEvent.ChatMessage, (message, participant) => {
@@ -381,17 +404,32 @@ function App() {
         });
       });
       room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
-        if (topic !== "posh.ai.transcript") return;
         try {
-          const text = new TextDecoder().decode(payload);
-          const parsed = JSON.parse(text);
+          const raw = new TextDecoder().decode(payload);
+          const parsed = JSON.parse(raw);
+
+          if (topic === "posh.user.transcript") {
+            if (parsed?.type !== "user_transcript" || !parsed?.id) return;
+            upsertMessage({
+              id: `user-data-${parsed.id}`,
+              role: "user",
+              text: parsed.text || "",
+            });
+            return;
+          }
+
+          if (topic !== "posh.ai.transcript") return;
           if (parsed?.type !== "assistant_transcript" || !parsed?.id) return;
-          if (seenChatIdsRef.current.has(parsed.id)) return;
-          seenChatIdsRef.current.add(parsed.id);
-          appendMessage({
+          const displayText =
+            parsed.interrupted && parsed.text
+              ? `${parsed.text} (interrupted)`
+              : parsed.interrupted
+                ? "(interrupted)"
+                : parsed.text || "";
+          upsertMessage({
             id: `ai-data-${parsed.id}`,
-            role: participant?.identity?.includes("bey") ? "ai" : "ai",
-            text: parsed.text || "",
+            role: "ai",
+            text: displayText,
           });
         } catch {
           // Ignore malformed payloads from unrelated data topics.
@@ -400,6 +438,14 @@ function App() {
       room.on(RoomEvent.Disconnected, () => {
         avatarBootstrappedRef.current = false;
         if (avatarContainerRef.current) avatarContainerRef.current.innerHTML = "";
+        setAiSpeaking(false);
+      });
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        const speaking = (speakers || []).some((participant) => {
+          const identity = participant?.identity || "";
+          return identity.includes("bey") || identity.startsWith("agent-");
+        });
+        setAiSpeaking(speaking);
       });
 
       await room.connect(payload.livekitUrl, payload.participantToken);
@@ -608,6 +654,7 @@ function App() {
     setLiveSttText("");
     setStatus("offline");
     setSessionSeconds(0);
+    setAiSpeaking(false);
   };
 
   const endConversation = async () => {
@@ -898,6 +945,16 @@ function App() {
                   </div>
                 );
               })}
+              {aiSpeaking ? (
+                <div className="msg">
+                  <span className="msg-label ai">POSH trainer</span>
+                  <div className="typing">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 

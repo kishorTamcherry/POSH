@@ -9,8 +9,20 @@ dotenv.config();
 
 const agentName = process.env.LIVEKIT_AGENT_NAME || "posh-bey-agent";
 const livekitLlmModel = process.env.LIVEKIT_LLM_MODEL || "openai/gpt-4o-mini";
+const syncAiTranscription = process.env.LIVEKIT_SYNC_TRANSCRIPTION !== "false";
 
-function forwardAssistantChatToRoom(session, room) {
+function publishJson(room, topic, data) {
+  try {
+    const payload = new TextEncoder().encode(JSON.stringify(data));
+    void room.localParticipant
+      ?.publishData?.(payload, { reliable: true, topic })
+      .catch((error) => console.error("publishData failed", topic, error.message));
+  } catch (error) {
+    console.error("publishJson failed", error);
+  }
+}
+
+function forwardAssistantChatToRoom(session, room, aiSpeechIdRef) {
   const { SpeechCreated } = voice.AgentSessionEventTypes;
   const forwardedItemIds = new Set();
   const safeFlagValue = (value) => {
@@ -28,38 +40,35 @@ function forwardAssistantChatToRoom(session, room) {
     const speechHandle = event?.speechHandle;
     if (!speechHandle) return;
 
+    if (aiSpeechIdRef) {
+      aiSpeechIdRef.current = speechHandle.id;
+    }
+
     speechHandle.addDoneCallback(() => {
       const wasInterrupted =
         safeFlagValue(speechHandle?.interrupted) ||
         safeFlagValue(speechHandle?.isInterrupted) ||
         safeFlagValue(speechHandle?.playoutInterrupted);
-      if (wasInterrupted) {
-        return;
-      }
       for (const item of speechHandle.chatItems || []) {
         if (!item || item.type !== "message" || item.role !== "assistant") continue;
-        if (forwardedItemIds.has(item.id)) continue;
         const text = typeof item.textContent === "string" ? item.textContent.trim() : "";
-        if (!text) continue;
-        forwardedItemIds.add(item.id);
-        void room.localParticipant
-          ?.sendText?.(text, { topic: "lk.chat" })
-          .catch((error) => console.error("sendText failed", error));
-        try {
-          const payload = new TextEncoder().encode(
-            JSON.stringify({
-              type: "assistant_transcript",
-              id: item.id,
-              text,
-              timestamp: Date.now(),
-            }),
-          );
-          void room.localParticipant
-            ?.publishData?.(payload, { reliable: true, topic: "posh.ai.transcript" })
-            .catch((error) => console.error("publishData failed", error));
-        } catch (error) {
-          console.error("assistant transcript encode failed", error);
+        if (!text && !wasInterrupted) continue;
+        if (text && !forwardedItemIds.has(item.id)) {
+          forwardedItemIds.add(item.id);
+          if (!wasInterrupted) {
+            void room.localParticipant
+              ?.sendText?.(text, { topic: "lk.chat" })
+              .catch((error) => console.error("sendText failed", error));
+          }
         }
+        publishJson(room, "posh.ai.transcript", {
+          type: "assistant_transcript",
+          id: speechHandle.id,
+          text,
+          partial: false,
+          interrupted: wasInterrupted,
+          timestamp: Date.now(),
+        });
       }
     });
   });
@@ -70,6 +79,7 @@ export default defineAgent({
     ctx.logContextFields = { room: ctx.room.name };
     let lastInterimTranscript = "";
     let lastInterimAtMs = 0;
+    let userTurnSeq = 0;
 
     const session = new voice.AgentSession({
       stt: new deepgram.STT({
@@ -102,7 +112,17 @@ export default defineAgent({
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (event) => {
       const transcript = (event?.transcript || "").trim();
       if (!transcript) return;
+
+      publishJson(ctx.room, "posh.user.transcript", {
+        type: "user_transcript",
+        id: `user-turn-${userTurnSeq}`,
+        text: transcript,
+        final: Boolean(event?.isFinal),
+        timestamp: Date.now(),
+      });
+
       if (event?.isFinal) {
+        userTurnSeq += 1;
         lastInterimTranscript = "";
         lastInterimAtMs = 0;
         return;
@@ -124,12 +144,38 @@ export default defineAgent({
       session.generateReply({ userInput: fallbackText });
     });
 
+    session.on(voice.AgentSessionEventTypes.Error, (event) => {
+      const message = String(event?.error?.message || "");
+      const isAbort =
+        message.toLowerCase().includes("request was aborted") ||
+        message.toLowerCase().includes("user_initiated");
+      if (isAbort) {
+        // Interruptions can cancel in-flight LLM calls; treat as expected.
+        console.warn("[AGENT] Ignoring expected abort during interruption", { message });
+        return;
+      }
+      console.error("[AGENT] Session error", {
+        message,
+        name: event?.error?.name,
+      });
+    });
+
     await ctx.connect();
+
+    const aiSpeechIdRef = { current: null };
+    forwardAssistantChatToRoom(session, ctx.room, aiSpeechIdRef);
+
     await session.start({
       room: ctx.room,
-      agent: new Assistant(),
+      agent: new Assistant({
+        getSpeechId: () => aiSpeechIdRef.current,
+        publishPartial: (data) => publishJson(ctx.room, "posh.ai.transcript", data),
+      }),
+      outputOptions: {
+        // Keep AI transcript aligned with avatar playout unless explicitly disabled.
+        syncTranscription: syncAiTranscription,
+      },
     });
-    forwardAssistantChatToRoom(session, ctx.room);
 
     const avatar = new bey.AvatarSession({
       apiKey: process.env.BEY_API_KEY,
@@ -145,7 +191,8 @@ export default defineAgent({
     });
 
     session.generateReply({
-      instructions: "Greet the user in one short sentence and mention you can help only with POSH Act 2013 topics.",
+      instructions:
+        "Welcome them warmly to the SFO Technologies POSH training. Deliver only Section 1 (welcome and purpose) in a conversational way, then ask a short check-in before continuing (do not read ahead to other sections).",
     });
   },
 });
