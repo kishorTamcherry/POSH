@@ -16,7 +16,7 @@ function chunkTextDelta(chunk) {
  * while tokens arrive (the SDK only commits the assistant chat item after audio playout ends).
  */
 function wrapLlmStreamForLiveTranscript(innerStream, hooks) {
-  const minIntervalMs = 90;
+  const minIntervalMs = 300;
   let accumulated = "";
   let lastPublishAt = 0;
   let pendingTimer = null;

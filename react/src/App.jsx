@@ -244,6 +244,7 @@ function App() {
   const timerRef = useRef(null);
   const cellRefs = useRef([]);
   const spacePressedRef = useRef(false);
+  const aiSmoothStateRef = useRef(new Map());
 
   const isLoggedIn = Boolean(token);
   const userMessageCount = useMemo(
@@ -332,6 +333,61 @@ function App() {
       return updated;
     });
   };
+  const clearAiSmoothers = () => {
+    for (const state of aiSmoothStateRef.current.values()) {
+      if (state.intervalId) clearInterval(state.intervalId);
+    }
+    aiSmoothStateRef.current.clear();
+  };
+  const smoothUpsertAiMessage = (id, targetText) => {
+    const safeTarget = typeof targetText === "string" ? targetText : "";
+    const stateMap = aiSmoothStateRef.current;
+    let state = stateMap.get(id);
+    if (!state) {
+      state = { display: "", target: safeTarget, intervalId: null };
+      stateMap.set(id, state);
+    }
+
+    state.target = safeTarget;
+    if (state.display === state.target) {
+      upsertMessage({ id, role: "ai", text: state.display });
+      return;
+    }
+    if (state.intervalId) return;
+
+    state.intervalId = setInterval(() => {
+      const current = state.display;
+      const nextTarget = state.target;
+
+      if (current === nextTarget) {
+        clearInterval(state.intervalId);
+        state.intervalId = null;
+        return;
+      }
+
+      // If upstream sends a non-prefix replacement, snap to target to avoid weird rewinds.
+      if (!nextTarget.startsWith(current)) {
+        state.display = nextTarget;
+      } else {
+        const remaining = nextTarget.length - current.length;
+        const step = remaining > 30 ? 4 : remaining > 15 ? 3 : remaining > 6 ? 2 : 1;
+        state.display = nextTarget.slice(0, current.length + step);
+      }
+
+      upsertMessage({ id, role: "ai", text: state.display });
+
+      if (state.display === nextTarget) {
+        clearInterval(state.intervalId);
+        state.intervalId = null;
+      }
+    }, 180);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearAiSmoothers();
+    };
+  }, []);
 
   const setupAvatarRoom = async (jwtToken) => {
     if (avatarBootstrappedRef.current) return;
@@ -426,11 +482,7 @@ function App() {
               : parsed.interrupted
                 ? "(interrupted)"
                 : parsed.text || "";
-          upsertMessage({
-            id: `ai-data-${parsed.id}`,
-            role: "ai",
-            text: displayText,
-          });
+          smoothUpsertAiMessage(`ai-data-${parsed.id}`, displayText);
         } catch {
           // Ignore malformed payloads from unrelated data topics.
         }
@@ -651,6 +703,7 @@ function App() {
     }
     avatarBootstrappedRef.current = false;
     if (avatarContainerRef.current) avatarContainerRef.current.innerHTML = "";
+    clearAiSmoothers();
     setLiveSttText("");
     setStatus("offline");
     setSessionSeconds(0);
