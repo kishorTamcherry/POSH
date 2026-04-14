@@ -35,6 +35,9 @@ export function AdminDashboardPage({
   const [selectedInvitationEmails, setSelectedInvitationEmails] = useState([]);
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
   const [bulkActionMsg, setBulkActionMsg] = useState("");
+  const [overviewTooltip, setOverviewTooltip] = useState(null);
+  const [agingTooltip, setAgingTooltip] = useState(null);
+  const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
 
   const invitationStatus = (row) => {
     if (row?.attended) return "completed";
@@ -224,14 +227,86 @@ export function AdminDashboardPage({
           return sum + (total > 0 ? (present / total) * 100 : 0);
         }, 0) / startedRows.length
       : 0;
+    const avgTrainingMinutes = startedRows.length
+      ? startedRows.reduce((sum, row) => sum + Number(row?.insights?.totalTrainingMinutes || 0), 0) /
+        startedRows.length
+      : 0;
+    const liveNow = dashboardBaseRows.filter((row) => Boolean(row?.insights?.currentlyDetected)).length;
+    const stalePending = dashboardBaseRows.filter((row) => {
+      if (row.completed) return false;
+      const updatedAt = new Date(row?.updatedAt || 0).getTime();
+      if (!Number.isFinite(updatedAt) || updatedAt <= 0) return true;
+      return Date.now() - updatedAt > 48 * 60 * 60 * 1000;
+    }).length;
     return {
       invited,
       started,
       completed,
       pending,
       avgPresencePct: Number(avgPresencePct.toFixed(1)),
+      avgTrainingMinutes: Number(avgTrainingMinutes.toFixed(1)),
+      liveNow,
+      stalePending,
     };
   })();
+  const completionTrend = (() => {
+    const now = new Date();
+    const points = Array.from({ length: 30 }, (_, i) => {
+      const d = new Date(now);
+      d.setDate(now.getDate() - (29 - i));
+      d.setHours(0, 0, 0, 0);
+      return {
+        key: d.toISOString().slice(0, 10),
+        label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        value: 0,
+      };
+    });
+    const byKey = new Map(points.map((p) => [p.key, p]));
+    for (const row of candidateRows) {
+      if (!row?.attended || !row?.completedAt) continue;
+      const dt = new Date(row.completedAt);
+      if (Number.isNaN(dt.getTime())) continue;
+      dt.setHours(0, 0, 0, 0);
+      const key = dt.toISOString().slice(0, 10);
+      const point = byKey.get(key);
+      if (point) point.value += 1;
+    }
+    return points;
+  })();
+  const funnelData = [
+    { label: "Invited", value: dashboardMetrics.invited },
+    { label: "Started", value: dashboardMetrics.started },
+    {
+      label: "In Progress",
+      value: Math.max(0, dashboardMetrics.started - dashboardMetrics.completed),
+    },
+    { label: "Completed", value: dashboardMetrics.completed },
+  ];
+  const pendingAging = (() => {
+    const buckets = [
+      { label: "0-1d", minH: 0, maxH: 24, count: 0 },
+      { label: "2-3d", minH: 24, maxH: 72, count: 0 },
+      { label: "4-7d", minH: 72, maxH: 168, count: 0 },
+      { label: ">7d", minH: 168, maxH: Infinity, count: 0 },
+    ];
+    for (const row of dashboardBaseRows) {
+      if (row?.completed) continue;
+      const invitedMs = new Date(row?.updatedAt || 0).getTime();
+      const ageH = Number.isFinite(invitedMs) && invitedMs > 0 ? (Date.now() - invitedMs) / 3600000 : 0;
+      const bucket = buckets.find((b) => ageH >= b.minH && ageH < b.maxH);
+      if (bucket) bucket.count += 1;
+    }
+    return buckets;
+  })();
+  const completionTrendMax = Math.max(1, ...completionTrend.map((p) => p.value));
+  const funnelMax = Math.max(1, ...funnelData.map((f) => f.value));
+  const pendingAgingMax = Math.max(1, ...pendingAging.map((b) => b.count));
+  const trainingOverviewBars = [
+    { label: "Invited", value: dashboardMetrics.invited, tone: "" },
+    { label: "Started", value: dashboardMetrics.started, tone: "" },
+    { label: "Completed", value: dashboardMetrics.completed, tone: "" },
+    { label: "Pending", value: dashboardMetrics.pending, tone: "warn" },
+  ];
 
   return (
     <main className="adm-shell">
@@ -450,7 +525,14 @@ export function AdminDashboardPage({
                             <td>
                               <span className={`adm-status-pill ${cfg.className}`}>{cfg.label}</span>
                             </td>
-                            <td>{progress}%</td>
+                            <td>
+                              <div className="adm-table-progress">
+                                <div className="adm-table-progress-track">
+                                  <div className="adm-table-progress-fill" style={{ width: `${progress}%` }} />
+                                </div>
+                                <span>{progress}%</span>
+                              </div>
+                            </td>
                             <td>{formatAgo(row.lastInvitedAt)}</td>
                           </tr>
                         );
@@ -601,6 +683,24 @@ export function AdminDashboardPage({
                 <div className="adm-stat-val">{candidateTotals.pending}</div>
               </button>
             </div>
+            <div className="adm-stats-grid">
+              <div className="adm-stat-card">
+                <div className="adm-stat-label">Average presence</div>
+                <div className="adm-stat-val">{dashboardMetrics.avgPresencePct}%</div>
+              </div>
+              <div className="adm-stat-card">
+                <div className="adm-stat-label">Avg training time</div>
+                <div className="adm-stat-val">{formatMinutes(dashboardMetrics.avgTrainingMinutes)} min</div>
+              </div>
+              <div className="adm-stat-card">
+                <div className="adm-stat-label">Live now</div>
+                <div className="adm-stat-val">{dashboardMetrics.liveNow}</div>
+              </div>
+              <div className="adm-stat-card">
+                <div className="adm-stat-label">Needs follow-up</div>
+                <div className="adm-stat-val">{dashboardMetrics.stalePending}</div>
+              </div>
+            </div>
 
             {candidateError ? <p className="error-note">{candidateError}</p> : null}
             <div className="adm-content-row adm-candidates-layout">
@@ -739,6 +839,118 @@ export function AdminDashboardPage({
                 <div className="adm-stat-val">{dashboardMetrics.pending}</div>
               </button>
             </div>
+            <div className="adm-charts-top-row">
+              <div className="adm-card adm-card-compact">
+                <div className="adm-card-header">
+                  <p>Completion Trend (30d)</p>
+                  <span>Daily completions</span>
+                </div>
+                <div className="adm-chart-wrap">
+                  <svg viewBox="0 0 320 130" className="adm-line-chart">
+                    <polyline
+                      fill="none"
+                      stroke="#534ab7"
+                      strokeWidth="2"
+                      points={completionTrend
+                        .map((p, idx) => {
+                          const x = (idx / Math.max(1, completionTrend.length - 1)) * 300 + 10;
+                          const y = 110 - (p.value / completionTrendMax) * 90;
+                          return `${x},${y}`;
+                        })
+                        .join(" ")}
+                    />
+                  </svg>
+                  <div className="adm-chart-meta">
+                    <span>Last 30 days</span>
+                    <span>Total: {completionTrend.reduce((sum, p) => sum + p.value, 0)}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="adm-card adm-card-compact">
+                <div className="adm-card-header">
+                  <p>Pipeline Funnel</p>
+                  <span>Candidate flow</span>
+                </div>
+                <div className="adm-mini-bars">
+                  {funnelData.map((item) => (
+                    <div className="adm-mini-bar-row" key={item.label}>
+                      <span>{item.label}</span>
+                      <div className="adm-mini-bar-track">
+                        <div
+                          className="adm-mini-bar-fill"
+                          style={{ width: `${Math.round((item.value / funnelMax) * 100)}%` }}
+                        />
+                      </div>
+                      <b>{item.value}</b>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="adm-card adm-card-compact">
+                <div className="adm-card-header">
+                  <p>Pending Aging</p>
+                  <span>Line trend by age bucket</span>
+                </div>
+                <div className="adm-chart-wrap">
+                  <svg
+                    viewBox="0 0 320 130"
+                    className="adm-line-chart"
+                    onMouseLeave={() => setAgingTooltip(null)}
+                  >
+                    <polyline
+                      fill="none"
+                      stroke="#ef9f27"
+                      strokeWidth="2"
+                      points={pendingAging
+                        .map((bucket, idx) => {
+                          const x = (idx / Math.max(1, pendingAging.length - 1)) * 300 + 10;
+                          const y = 110 - (bucket.count / pendingAgingMax) * 90;
+                          return `${x},${y}`;
+                        })
+                        .join(" ")}
+                    />
+                    {pendingAging.map((bucket, idx) => {
+                      const x = (idx / Math.max(1, pendingAging.length - 1)) * 300 + 10;
+                      const y = 110 - (bucket.count / pendingAgingMax) * 90;
+                      return (
+                        <circle
+                          key={`aging-point-${bucket.label}`}
+                          cx={x}
+                          cy={y}
+                          r="5"
+                          fill="#ef9f27"
+                          onMouseEnter={() =>
+                            setAgingTooltip({
+                              left: `${clamp((x / 320) * 100, 12, 88)}%`,
+                              top: `${clamp((y / 130) * 100, 14, 92)}%`,
+                              place: y < 30 ? "below" : "above",
+                              text: `${bucket.label}: ${bucket.count}`,
+                            })
+                          }
+                        />
+                      );
+                    })}
+                  </svg>
+                  {agingTooltip ? (
+                    <div
+                      className={`adm-inline-tooltip ${agingTooltip.place === "below" ? "below" : ""}`}
+                      style={{ left: agingTooltip.left, top: agingTooltip.top }}
+                    >
+                      {agingTooltip.text}
+                    </div>
+                  ) : null}
+                  <div className="adm-chart-axis">
+                    {pendingAging.map((bucket) => (
+                      <span key={`aging-label-${bucket.label}`}>{bucket.label}</span>
+                    ))}
+                  </div>
+                  <div className="adm-chart-meta">
+                    <span>Pending buckets</span>
+                    <span>Total: {pendingAging.reduce((sum, b) => sum + b.count, 0)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             {adminError ? <p className="error-note">{adminError}</p> : null}
             <div className="adm-content-row">
@@ -835,27 +1047,93 @@ export function AdminDashboardPage({
                 <div className="adm-card">
                   <div className="adm-card-header">
                     <p>Training overview</p>
-                    <span>Simple summary</span>
+                    <span>Bar chart</span>
                   </div>
-                  <div className="adm-donut-wrap">
-                    <div className="adm-donut-stat">{dashboardMetrics.completed}</div>
-                    <div className="adm-donut-sub">candidates completed</div>
-                    <div className="adm-legend-row">
-                      <span>Started</span>
-                      <b>{dashboardMetrics.started}</b>
-                    </div>
-                    <div className="adm-legend-row">
-                      <span>Pending</span>
-                      <b>{dashboardMetrics.pending}</b>
-                    </div>
-                    <div className="adm-legend-row">
-                      <span>Completion rate</span>
-                      <b>
-                        {dashboardMetrics.invited
-                          ? `${Math.round((dashboardMetrics.completed / dashboardMetrics.invited) * 100)}%`
-                          : "0%"}
-                      </b>
-                    </div>
+                  <div className="adm-chart-wrap">
+                    <svg
+                      viewBox="0 0 320 150"
+                      className="adm-bar-chart"
+                      onMouseLeave={() => setOverviewTooltip(null)}
+                    >
+                      {trainingOverviewBars.map((item, idx) => {
+                        const x = 28 + idx * 72;
+                        const h = (item.value / Math.max(1, dashboardMetrics.invited)) * 92;
+                        const y = 112 - h;
+                        const barClass = item.tone === "warn" ? "adm-bar warn" : "adm-bar";
+                        return (
+                          <g key={`overview-bar-${item.label}`}>
+                            <rect
+                              x={x}
+                              y={y}
+                              width="40"
+                              height={h}
+                              rx="6"
+                              className={barClass}
+                              onMouseEnter={() =>
+                                setOverviewTooltip({
+                                  left: `${clamp(((x + 20) / 320) * 100, 12, 88)}%`,
+                                  top: `${clamp((y / 150) * 100, 14, 92)}%`,
+                                  place: y < 32 ? "below" : "above",
+                                  text: `${item.label}: ${item.value}`,
+                                })
+                              }
+                            />
+                            <text x={x + 20} y="126" textAnchor="middle" className="adm-bar-label">
+                              {item.label}
+                            </text>
+                            <text x={x + 20} y={y - 4} textAnchor="middle" className="adm-bar-value">
+                              {item.value}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                    {overviewTooltip ? (
+                      <div
+                        className={`adm-inline-tooltip ${overviewTooltip.place === "below" ? "below" : ""}`}
+                        style={{ left: overviewTooltip.left, top: overviewTooltip.top }}
+                      >
+                        {overviewTooltip.text}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="adm-chart-meta">
+                    <span>Completion rate</span>
+                    <span>
+                      {dashboardMetrics.invited
+                        ? `${Math.round((dashboardMetrics.completed / dashboardMetrics.invited) * 100)}%`
+                        : "0%"}
+                    </span>
+                  </div>
+                </div>
+                <div className="adm-card">
+                  <div className="adm-card-header">
+                    <p>Action center</p>
+                    <span>Priority follow-ups</span>
+                  </div>
+                  <div className="adm-activity-list">
+                    {filteredDashboardRows
+                      .filter((row) => !row.completed)
+                      .slice(0, 4)
+                      .map((row) => (
+                        <div className="adm-activity-item" key={`todo-${row.email || row.userId}`}>
+                          <div className={`adm-act-dot ${row?.insights?.currentlyDetected ? "live" : "away"}`} />
+                          <div className="adm-activity-content">
+                            <p>{row.candidateName || row.email || row.userId || "Candidate"}</p>
+                            <span>{row.completed ? "Completed" : "Pending completion"}</span>
+                            <span>{formatAgo(row.updatedAt)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    {filteredDashboardRows.filter((row) => !row.completed).length === 0 ? (
+                      <div className="adm-activity-item">
+                        <div className="adm-act-dot live" />
+                        <div className="adm-activity-content">
+                          <p>All candidates completed</p>
+                          <span>No immediate follow-up needed.</span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 <div className="adm-card">

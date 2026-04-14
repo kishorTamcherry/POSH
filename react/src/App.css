@@ -294,6 +294,25 @@
   gap: 16px;
 }
 
+.adm-charts-top-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.adm-card-compact .adm-card-header {
+  padding: 10px 12px;
+}
+
+.adm-card-compact .adm-card-header p {
+  font-size: 13px;
+}
+
+.adm-card-compact .adm-card-header span {
+  font-size: 11px;
+}
+
 .adm-card {
   background: #fff;
   border-radius: 14px;
@@ -628,6 +647,161 @@
 .adm-bulk-row em {
   color: #666;
   font-style: normal;
+}
+
+.adm-chart-wrap {
+  padding: 8px 12px 10px;
+  position: relative;
+}
+
+.adm-line-chart {
+  width: 100%;
+  height: 104px;
+  display: block;
+}
+
+.adm-chart-axis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  font-size: 10px;
+  color: #777;
+  margin-top: 2px;
+}
+
+.adm-chart-axis span {
+  text-align: center;
+}
+
+.adm-inline-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
+  background: #1e1b2e;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  padding: 7px 9px;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: 0 6px 18px rgba(10, 10, 20, 0.25);
+}
+
+.adm-inline-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid #1e1b2e;
+}
+
+.adm-inline-tooltip.below {
+  transform: translate(-50%, 8px);
+}
+
+.adm-inline-tooltip.below::after {
+  bottom: auto;
+  top: -4px;
+  border-top: none;
+  border-bottom: 4px solid #1e1b2e;
+}
+
+.adm-chart-meta {
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #777;
+}
+
+.adm-mini-bars {
+  padding: 8px 12px 10px;
+}
+
+.adm-mini-bar-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 24px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.adm-mini-bar-track {
+  height: 8px;
+  border-radius: 8px;
+  background: #efeef9;
+  overflow: hidden;
+}
+
+.adm-mini-bar-fill {
+  height: 100%;
+  border-radius: 8px;
+  background: #534ab7;
+}
+
+.adm-mini-bar-fill.warn {
+  background: #ef9f27;
+}
+
+.adm-bar-chart {
+  width: 100%;
+  height: 140px;
+  display: block;
+}
+
+.adm-bar-chart .adm-bar {
+  fill: #534ab7;
+}
+
+.adm-bar-chart .adm-bar.warn {
+  fill: #ef9f27;
+}
+
+.adm-bar-chart .adm-bar-label {
+  font-size: 10px;
+  fill: #777;
+}
+
+.adm-bar-chart .adm-bar-value {
+  font-size: 10px;
+  fill: #1a1a2e;
+  font-weight: 600;
+}
+
+.adm-table-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adm-table-progress-track {
+  width: 86px;
+  height: 7px;
+  border-radius: 7px;
+  background: #efeef9;
+  overflow: hidden;
+}
+
+.adm-table-progress-fill {
+  height: 100%;
+  border-radius: 7px;
+  background: #534ab7;
+}
+
+.adm-table-progress span {
+  font-size: 11px;
+  color: #666;
+  min-width: 34px;
+}
+
+@media (max-width: 1180px) {
+  .adm-charts-top-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .adm-invite-msg {
