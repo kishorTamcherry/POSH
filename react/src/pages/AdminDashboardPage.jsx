@@ -16,7 +16,6 @@ export function AdminDashboardPage({
   candidateError,
   selectedCandidate,
   todayLabel,
-  onOpenTrainingUi,
   onLogout,
   onTabChange,
   onInviteEmailChange,
@@ -82,9 +81,6 @@ export function AdminDashboardPage({
             <div className="adm-page-sub">{todayLabel}</div>
           </div>
           <div className="adm-actions">
-            <button className="adm-btn-outline" onClick={onOpenTrainingUi}>
-              Open Training UI
-            </button>
             <button className="adm-btn-primary" onClick={onLogout}>
               Logout
             </button>
@@ -92,43 +88,90 @@ export function AdminDashboardPage({
         </div>
 
         {activeTab === "invitations" ? (
-          <div className="adm-content-row">
-            <div className="adm-card">
-              <div className="adm-card-header">
-                <p>Send invitation</p>
-                <span>Email candidate access link</span>
+          <>
+            <div className="adm-stats-grid adm-invite-stats">
+              <div className="adm-stat-card">
+                <div className="adm-stat-label">Total invited</div>
+                <div className="adm-stat-val">{candidateTotals.invited}</div>
               </div>
-              <form
-                onSubmit={onSendInvite}
-                style={{ display: "flex", flexDirection: "column", gap: "10px", maxWidth: "560px" }}
-              >
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={onInviteEmailChange}
-                  placeholder="candidate@company.com"
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "11px 12px",
-                    borderRadius: "10px",
-                    border: "1px solid #d9d6ee",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                  }}
-                />
-                <button className="adm-btn-primary" type="submit" disabled={inviteSending}>
-                  {inviteSending ? "Sending..." : "Send Invite"}
-                </button>
-                {inviteMessage ? (
-                  <p style={{ margin: 0, fontSize: "13px", color: "#1f7a52" }}>{inviteMessage}</p>
-                ) : null}
-                {inviteError ? (
-                  <p style={{ margin: 0, fontSize: "13px", color: "#b42318" }}>{inviteError}</p>
-                ) : null}
-              </form>
+              <div className="adm-stat-card">
+                <div className="adm-stat-label">Completed</div>
+                <div className="adm-stat-val">{candidateTotals.attended}</div>
+              </div>
+              <div className="adm-stat-card">
+                <div className="adm-stat-label">Pending</div>
+                <div className="adm-stat-val">{candidateTotals.pending}</div>
+              </div>
             </div>
-          </div>
+            <div className="adm-content-row adm-invitations-layout">
+              <div className="adm-card">
+                <div className="adm-card-header">
+                  <p>Send training invitation</p>
+                  <span>Email candidate access link</span>
+                </div>
+                <div className="adm-invite-body">
+                  <div className="adm-invite-banner">
+                    <div className="adm-invite-icon">✉</div>
+                    <div>
+                      <p>Invite a candidate to start POSH training</p>
+                      <span>The candidate receives a secure mail and appears in the Candidates tracker.</span>
+                    </div>
+                  </div>
+                  <form className="adm-invite-form" onSubmit={onSendInvite}>
+                    <label htmlFor="invite-email" className="adm-invite-label">
+                      Candidate email
+                    </label>
+                    <div className="adm-invite-input-row">
+                      <input
+                        id="invite-email"
+                        type="email"
+                        value={inviteEmail}
+                        onChange={onInviteEmailChange}
+                        placeholder="candidate@company.com"
+                        required
+                        className="adm-invite-input"
+                      />
+                      <button className="adm-btn-primary adm-invite-btn" type="submit" disabled={inviteSending}>
+                        {inviteSending ? "Sending..." : "Send Invite"}
+                      </button>
+                    </div>
+                    {inviteMessage ? <p className="adm-invite-msg success">{inviteMessage}</p> : null}
+                    {inviteError ? <p className="adm-invite-msg error">{inviteError}</p> : null}
+                  </form>
+                </div>
+              </div>
+              <div className="adm-side-col">
+                <div className="adm-card">
+                  <div className="adm-card-header">
+                    <p>Recent invitations</p>
+                    <span>Last 5 candidates</span>
+                  </div>
+                  <div className="adm-activity-list">
+                    {candidateRows.slice(0, 5).map((row) => (
+                      <div className="adm-activity-item" key={`inv-${row.email}`}>
+                        <div className={`adm-act-dot ${row.attended ? "live" : "away"}`} />
+                        <div>
+                          <p>{row.email}</p>
+                          <span>
+                            Invited {formatAgo(row.lastInvitedAt)} · {row.attended ? "Completed" : "Pending"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {candidateRows.length === 0 ? (
+                      <div className="adm-activity-item">
+                        <div className="adm-act-dot away" />
+                        <div>
+                          <p>No invitations sent yet</p>
+                          <span>Send an invite to get started.</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         ) : activeTab === "candidates" ? (
           <>
             <div className="adm-stats-grid">

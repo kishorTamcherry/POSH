@@ -390,6 +390,107 @@
   grid-template-columns: minmax(0, 1fr) 340px;
 }
 
+.adm-invite-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.adm-invitations-layout {
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.adm-invite-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.adm-invite-banner {
+  border: 1px solid #ece8ff;
+  background: linear-gradient(180deg, #f8f6ff 0%, #f3f0ff 100%);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.adm-invite-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #7f77dd;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex: 0 0 auto;
+}
+
+.adm-invite-banner p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #292546;
+}
+
+.adm-invite-banner span {
+  margin-top: 2px;
+  display: block;
+  font-size: 12px;
+  color: #66608f;
+}
+
+.adm-invite-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.adm-invite-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #57516f;
+}
+
+.adm-invite-input-row {
+  display: flex;
+  gap: 10px;
+}
+
+.adm-invite-input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid #d9d6ee;
+  font-size: 14px;
+}
+
+.adm-invite-input:focus {
+  outline: 2px solid rgba(127, 119, 221, 0.25);
+  border-color: #7f77dd;
+}
+
+.adm-invite-btn {
+  min-width: 130px;
+}
+
+.adm-invite-msg {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.adm-invite-msg.success {
+  color: #1f7a52;
+}
+
+.adm-invite-msg.error {
+  color: #b42318;
+}
+
 .adm-detail-body {
   padding: 10px 16px 14px;
 }
@@ -1138,6 +1239,24 @@
   .adm-content-row,
   .adm-candidates-layout {
     grid-template-columns: 1fr;
+  }
+
+  .adm-invitations-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .adm-invite-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .adm-invite-input-row {
+    flex-direction: column;
+  }
+
+  .adm-invite-btn {
+    width: 100%;
   }
 }
 

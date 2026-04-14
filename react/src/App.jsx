@@ -1072,7 +1072,6 @@ function App() {
         candidateError={candidateError}
         selectedCandidate={selectedCandidate}
         todayLabel={todayLabel}
-        onOpenTrainingUi={() => window.location.assign("/")}
         onLogout={() => {
           window.localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
           setAdminToken("");
