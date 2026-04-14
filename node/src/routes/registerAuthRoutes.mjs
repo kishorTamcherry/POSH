@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { buildAttendanceInsights } from "../services/attendanceInsights.mjs";
 
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -17,6 +18,23 @@ function otpTemplate(otp, otpExpiryMinutes) {
   `;
 }
 
+function invitationTemplate(candidateEmail, inviteUrl) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #111827;">
+      <h2 style="margin-bottom: 8px;">POSH Training Invitation</h2>
+      <p style="margin-top: 0;">You have been invited to attend the POSH awareness training session.</p>
+      <p>Please use the link below to access your training portal:</p>
+      <p style="margin: 18px 0;">
+        <a href="${inviteUrl}" style="display: inline-block; background: #1a1a2e; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px;">
+          Open POSH Training
+        </a>
+      </p>
+      <p style="font-size: 14px; color: #4b5563;">Candidate email: <strong>${candidateEmail}</strong></p>
+      <p style="font-size: 13px; color: #6b7280;">If you were not expecting this invite, please ignore this email.</p>
+    </div>
+  `;
+}
+
 async function sendOtpMail(transporter, emailUser, email, otp, otpExpiryMinutes) {
   await transporter.sendMail({
     from: `"Posh AI" <${emailUser}>`,
@@ -24,6 +42,16 @@ async function sendOtpMail(transporter, emailUser, email, otp, otpExpiryMinutes)
     subject: "Your Posh AI OTP code",
     text: `Your OTP for login is: ${otp}`,
     html: otpTemplate(otp, otpExpiryMinutes),
+  });
+}
+
+async function sendInvitationMail(transporter, emailUser, candidateEmail, inviteUrl) {
+  await transporter.sendMail({
+    from: `"POSH Trainer" <${emailUser}>`,
+    to: candidateEmail,
+    subject: "Invitation to POSH training session",
+    text: `You are invited to join POSH training. Open this link: ${inviteUrl}`,
+    html: invitationTemplate(candidateEmail, inviteUrl),
   });
 }
 
@@ -35,12 +63,16 @@ function buildDemoAiReply(userText) {
 export function registerAuthRoutes(app, deps) {
   const {
     User,
+    CameraAttendance,
+    CandidateInvitation,
     jwtSecret,
     otpExpiryMinutes,
     adminEmail,
     adminPassword,
+    verifyAdminAuth,
     transporter,
     emailUser,
+    candidateAppUrl,
   } = deps;
 
   app.post("/auth/login", async (req, res) => {
@@ -128,6 +160,94 @@ export function registerAuthRoutes(app, deps) {
       token,
       admin: { email, role: "admin" },
     });
+  });
+
+  app.post("/admin/invitations", verifyAdminAuth, async (req, res) => {
+    const candidateEmail = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
+    if (!candidateEmail) {
+      return res.status(400).json({ message: "Candidate email is required." });
+    }
+    if (!candidateEmail.includes("@")) {
+      return res.status(400).json({ message: "Candidate email is invalid." });
+    }
+
+    const inviteUrl = String(candidateAppUrl || "").trim() || "http://localhost:5173";
+    try {
+      await CandidateInvitation.updateOne(
+        { email: candidateEmail },
+        {
+          $set: {
+            email: candidateEmail,
+            invitedBy: req.user?.email || "admin",
+            lastInvitedAt: new Date(),
+          },
+          $setOnInsert: {
+            firstInvitedAt: new Date(),
+          },
+          $inc: {
+            inviteCount: 1,
+          },
+        },
+        { upsert: true },
+      );
+      await sendInvitationMail(transporter, emailUser, candidateEmail, inviteUrl);
+      return res.json({ message: `Invitation sent to ${candidateEmail}.` });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to send invitation email.", error: error.message });
+    }
+  });
+
+  app.get("/admin/candidates/invited", verifyAdminAuth, async (req, res) => {
+    try {
+      const inviteRecords = await CandidateInvitation.find({}).sort({ lastInvitedAt: -1 }).lean();
+      const attendanceRecords = await CameraAttendance.find({}).lean();
+
+      const attendanceByEmail = new Map(
+        attendanceRecords
+          .filter((row) => row?.email)
+          .map((row) => [String(row.email).toLowerCase(), row]),
+      );
+
+      const records = inviteRecords.map((row) => {
+        const email = String(row.email || "").toLowerCase();
+        const attendance = attendanceByEmail.get(email);
+        const attended = Boolean(attendance);
+        const insights = attendance ? buildAttendanceInsights(attendance) : null;
+        return {
+          email,
+          invitedBy: row.invitedBy || "admin",
+          inviteCount: Number(row.inviteCount || 0),
+          firstInvitedAt: row.firstInvitedAt || row.createdAt,
+          lastInvitedAt: row.lastInvitedAt || row.updatedAt,
+          attended,
+          attendanceStatus: attendance?.status || "not-started",
+          lastAttendedAt: attendance?.updatedAt || null,
+          attendanceNote: attendance?.note || "",
+          attendanceUpdatedAt: attendance?.updatedAt || null,
+          insights: insights
+            ? {
+                currentlyDetected: Boolean(insights.currentlyDetected),
+                outSince: insights.outSince || null,
+                lastSeenAt: insights.lastSeenAt || null,
+                presentMinutes: Number(insights.presentMinutes || 0),
+                awayMinutes: Number(insights.awayMinutes || 0),
+              }
+            : null,
+        };
+      });
+
+      const totals = {
+        invited: records.length,
+        attended: records.filter((row) => row.attended).length,
+      };
+      totals.pending = Math.max(0, totals.invited - totals.attended);
+
+      return res.json({ totals, records });
+    } catch (error) {
+      return res.status(500).json({ message: error.message || "Failed to load invited candidates." });
+    }
   });
 
   app.post("/ai/respond", (req, res) => {

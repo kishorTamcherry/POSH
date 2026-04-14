@@ -51,6 +51,15 @@ function App() {
   const [adminRows, setAdminRows] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState("");
+  const [adminTab, setAdminTab] = useState("dashboard");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState("");
+  const [inviteError, setInviteError] = useState("");
+  const [candidateRows, setCandidateRows] = useState([]);
+  const [candidateLoading, setCandidateLoading] = useState(false);
+  const [candidateError, setCandidateError] = useState("");
+  const [selectedCandidateEmail, setSelectedCandidateEmail] = useState("");
 
   const socketRef = useRef(null);
   const livekitRoomRef = useRef(null);
@@ -97,6 +106,16 @@ function App() {
     );
     return { total, detected, notDetected, totalPresent };
   }, [adminRows]);
+  const candidateTotals = useMemo(() => {
+    const invited = candidateRows.length;
+    const attended = candidateRows.filter((row) => row?.attended).length;
+    const pending = Math.max(0, invited - attended);
+    return { invited, attended, pending };
+  }, [candidateRows]);
+  const selectedCandidate = useMemo(() => {
+    if (!selectedCandidateEmail) return null;
+    return candidateRows.find((row) => row.email === selectedCandidateEmail) || null;
+  }, [candidateRows, selectedCandidateEmail]);
 
   useEffect(() => {
     if (isAdminPath) {
@@ -427,6 +446,39 @@ function App() {
     return () => clearInterval(intervalId);
   }, [adminToken, isAdminPath]);
 
+  useEffect(() => {
+    if (!isAdminPath || !adminToken) return;
+
+    const loadCandidates = async () => {
+      setCandidateLoading(true);
+      setCandidateError("");
+      try {
+        const response = await fetch(`${API_BASE_URL}/admin/candidates/invited`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.message || "Failed to fetch invited candidates.");
+        }
+        setCandidateRows(Array.isArray(payload?.records) ? payload.records : []);
+        setSelectedCandidateEmail((prev) => {
+          if (!prev) return "";
+          return (payload?.records || []).some((row) => row?.email === prev) ? prev : "";
+        });
+      } catch (error) {
+        setCandidateError(error.message || "Failed to fetch invited candidates.");
+      } finally {
+        setCandidateLoading(false);
+      }
+    };
+
+    void loadCandidates();
+    const intervalId = setInterval(() => {
+      void loadCandidates();
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [adminToken, isAdminPath]);
+
   const setupAvatarRoom = async (jwtToken) => {
     if (avatarBootstrappedRef.current) return;
     avatarBootstrappedRef.current = true;
@@ -726,6 +778,53 @@ function App() {
     }
   };
 
+  const handleSendInvite = async (event) => {
+    event.preventDefault();
+    setInviteMessage("");
+    setInviteError("");
+    if (!inviteEmail || !inviteEmail.includes("@")) {
+      setInviteError("Enter a valid candidate email.");
+      return;
+    }
+    setInviteSending(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/invitations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ email: inviteEmail }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.message || "Failed to send invitation.");
+      }
+      setInviteMessage(payload?.message || "Invitation sent.");
+      setInviteEmail("");
+      try {
+        const refreshResponse = await fetch(`${API_BASE_URL}/admin/candidates/invited`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        const refreshPayload = await refreshResponse.json();
+        if (refreshResponse.ok) {
+          const refreshedRows = Array.isArray(refreshPayload?.records) ? refreshPayload.records : [];
+          setCandidateRows(refreshedRows);
+          setSelectedCandidateEmail((prev) => {
+            if (!prev) return "";
+            return refreshedRows.some((row) => row?.email === prev) ? prev : "";
+          });
+        }
+      } catch {
+        // no-op
+      }
+    } catch (error) {
+      setInviteError(error.message || "Failed to send invitation.");
+    } finally {
+      setInviteSending(false);
+    }
+  };
+
   const handleCellChange = (i, event) => {
     const value = event.target.value.replace(/\D/g, "").slice(0, 1);
     setOtpDigits((prev) => {
@@ -939,12 +1038,26 @@ function App() {
         adminRows={adminRows}
         adminLoading={adminLoading}
         adminError={adminError}
+        activeTab={adminTab}
+        inviteEmail={inviteEmail}
+        inviteSending={inviteSending}
+        inviteMessage={inviteMessage}
+        inviteError={inviteError}
+        candidateRows={candidateRows}
+        candidateTotals={candidateTotals}
+        candidateLoading={candidateLoading}
+        candidateError={candidateError}
+        selectedCandidate={selectedCandidate}
         todayLabel={todayLabel}
         onOpenTrainingUi={() => window.location.assign("/")}
         onLogout={() => {
           window.localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
           setAdminToken("");
         }}
+        onTabChange={(tab) => setAdminTab(tab)}
+        onInviteEmailChange={(event) => setInviteEmail(event.target.value)}
+        onSendInvite={handleSendInvite}
+        onSelectCandidate={(email) => setSelectedCandidateEmail(email)}
       />
     );
   }

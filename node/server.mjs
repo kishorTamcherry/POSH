@@ -8,7 +8,7 @@ import nodemailer from "nodemailer";
 import OpenAI from "openai";
 import { Server } from "socket.io";
 import { createAuthMiddleware } from "./src/middleware/auth.mjs";
-import { CameraAttendance, User } from "./src/models/index.mjs";
+import { CameraAttendance, CandidateInvitation, User } from "./src/models/index.mjs";
 import { registerAuthRoutes } from "./src/routes/registerAuthRoutes.mjs";
 import { registerAvatarRoutes } from "./src/routes/registerAvatarRoutes.mjs";
 import { registerAttendanceRoutes } from "./src/routes/registerAttendanceRoutes.mjs";
@@ -33,6 +33,7 @@ const livekitAgentName = process.env.LIVEKIT_AGENT_NAME || "posh-bey-agent";
 const adminEmail = (process.env.ADMIN_EMAIL || "admin@posh.local").trim().toLowerCase();
 const adminPassword = process.env.ADMIN_PASSWORD || "change-me";
 const avatarIdentity = process.env.BEY_AVATAR_IDENTITY || "bey-avatar-agent";
+const candidateAppUrl = process.env.CANDIDATE_APP_URL || frontendOrigin;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const roomServiceClient =
@@ -103,12 +104,16 @@ app.get("/health", (_req, res) => {
 
 registerAuthRoutes(app, {
   User,
+  CameraAttendance,
+  CandidateInvitation,
   jwtSecret,
   otpExpiryMinutes,
   adminEmail,
   adminPassword,
+  verifyAdminAuth,
   transporter,
   emailUser: process.env.EMAIL_USER,
+  candidateAppUrl,
 });
 
 registerAvatarRoutes(app, {

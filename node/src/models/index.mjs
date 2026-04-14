@@ -44,5 +44,17 @@ const cameraAttendanceSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+const candidateInvitationSchema = new mongoose.Schema(
+  {
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
+    invitedBy: { type: String, default: "admin", trim: true },
+    inviteCount: { type: Number, default: 1 },
+    firstInvitedAt: { type: Date, default: Date.now },
+    lastInvitedAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true },
+);
+
 export const User = mongoose.model("User", userSchema);
 export const CameraAttendance = mongoose.model("CameraAttendance", cameraAttendanceSchema);
+export const CandidateInvitation = mongoose.model("CandidateInvitation", candidateInvitationSchema);
