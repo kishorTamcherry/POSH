@@ -7,6 +7,18 @@ const API_BASE_URL = "http://localhost:4000";
 const TOKEN_STORAGE_KEY = "posh_token";
 const ACCENT = "#7f77dd";
 const NAVY = "#1a1a2e";
+const AVATAR_LOADER_STEPS = [
+  "Connecting to AI interviewer",
+  "Checking microphone",
+  "Loading session context",
+  "Preparing questions",
+];
+const AVATAR_LOADER_STATUS = [
+  "Establishing secure connection...",
+  "Microphone access granted...",
+  "Loading your session profile...",
+  "AI interviewer is ready!",
+];
 
 const loginStyles = {
   scene: {
@@ -231,6 +243,8 @@ function App() {
   const [camOn, setCamOn] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const [aiSpeaking, setAiSpeaking] = useState(false);
+  const [avatarLoaderStep, setAvatarLoaderStep] = useState(0);
+  const [avatarReady, setAvatarReady] = useState(false);
 
   const socketRef = useRef(null);
   const livekitRoomRef = useRef(null);
@@ -239,6 +253,10 @@ function App() {
   const localMicTrackRef = useRef(null);
   const camVideoRef = useRef(null);
   const camStreamRef = useRef(null);
+  const transcriptBodyRef = useRef(null);
+  const avatarVideoReadyRef = useRef(false);
+  const avatarAudioElsRef = useRef([]);
+  const pendingAvatarAudioElsRef = useRef([]);
   const seenTranscriptIdsRef = useRef(new Set());
   const seenChatIdsRef = useRef(new Set());
   const timerRef = useRef(null);
@@ -247,9 +265,10 @@ function App() {
   const aiSmoothStateRef = useRef(new Map());
 
   const isLoggedIn = Boolean(token);
+  const visibleMessages = avatarReady ? messages : [];
   const userMessageCount = useMemo(
-    () => messages.filter((message) => message.role === "user").length,
-    [messages],
+    () => visibleMessages.filter((message) => message.role === "user").length,
+    [visibleMessages],
   );
   const sessionTimer = useMemo(() => {
     const mm = String(Math.floor(sessionSeconds / 60)).padStart(2, "0");
@@ -389,9 +408,28 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const container = transcriptBodyRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [messages, aiSpeaking]);
+
+  useEffect(() => {
+    if (!avatarLoading) {
+      setAvatarLoaderStep(0);
+      return;
+    }
+    setAvatarLoaderStep(0);
+    const intervalId = setInterval(() => {
+      setAvatarLoaderStep((prev) => Math.min(prev + 1, AVATAR_LOADER_STEPS.length - 1));
+    }, 1400);
+    return () => clearInterval(intervalId);
+  }, [avatarLoading]);
+
   const setupAvatarRoom = async (jwtToken) => {
     if (avatarBootstrappedRef.current) return;
     avatarBootstrappedRef.current = true;
+    setAvatarReady(false);
     setAvatarLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/avatar/bey/session`, {
@@ -415,14 +453,25 @@ function App() {
           el.style.objectFit = "cover";
           el.style.borderRadius = "10px";
           avatarContainerRef.current.appendChild(el);
+          avatarVideoReadyRef.current = true;
+          setAvatarReady(true);
+          for (const audioEl of pendingAvatarAudioElsRef.current) {
+            void audioEl.play().catch(() => {});
+          }
+          pendingAvatarAudioElsRef.current = [];
           setAvatarLoading(false);
         }
         if (track.kind === "audio") {
           const el = track.attach();
-          el.autoplay = true;
+          el.autoplay = false;
           el.style.display = "none";
           document.body.appendChild(el);
-          void el.play().catch(() => {});
+          avatarAudioElsRef.current.push(el);
+          if (avatarVideoReadyRef.current) {
+            void el.play().catch(() => {});
+          } else {
+            pendingAvatarAudioElsRef.current.push(el);
+          }
         }
       });
       room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
@@ -489,6 +538,16 @@ function App() {
       });
       room.on(RoomEvent.Disconnected, () => {
         avatarBootstrappedRef.current = false;
+        avatarVideoReadyRef.current = false;
+        setAvatarReady(false);
+        for (const audioEl of avatarAudioElsRef.current) {
+          audioEl.remove();
+        }
+        avatarAudioElsRef.current = [];
+        for (const audioEl of pendingAvatarAudioElsRef.current) {
+          audioEl.remove();
+        }
+        pendingAvatarAudioElsRef.current = [];
         if (avatarContainerRef.current) avatarContainerRef.current.innerHTML = "";
         setAiSpeaking(false);
       });
@@ -526,7 +585,6 @@ function App() {
       } catch {
         setCamOn(false);
       }
-      setAvatarLoading(false);
     } catch (error) {
       setSocketError(error.message || "Avatar setup failed.");
       setAvatarLoading(false);
@@ -702,6 +760,16 @@ function App() {
       socketRef.current = null;
     }
     avatarBootstrappedRef.current = false;
+    avatarVideoReadyRef.current = false;
+    setAvatarReady(false);
+    for (const audioEl of avatarAudioElsRef.current) {
+      audioEl.remove();
+    }
+    avatarAudioElsRef.current = [];
+    for (const audioEl of pendingAvatarAudioElsRef.current) {
+      audioEl.remove();
+    }
+    pendingAvatarAudioElsRef.current = [];
     if (avatarContainerRef.current) avatarContainerRef.current.innerHTML = "";
     clearAiSmoothers();
     setLiveSttText("");
@@ -957,7 +1025,80 @@ function App() {
           <div className="video-card">
             <div className="video-inner">
               <div ref={avatarContainerRef} className="avatar-host" />
-              {avatarLoading ? <span className="overlay-note">Connecting avatar...</span> : null}
+              {avatarLoading ? (
+                <div className="av-loader-wrap">
+                  <div className="av-logo-ring">
+                    <div className="av-ring-outer" />
+                    <div className="av-ring-spin" />
+                    <div className="av-ring-spin2" />
+                    <div className="av-logo-inner">
+                      <svg
+                        width="26"
+                        height="26"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#7f77dd"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="8" r="4" />
+                        <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+                        <circle cx="18" cy="6" r="2" fill="#7f77dd" stroke="none" />
+                        <path d="M20 4l1-1M22 6h1M20 8l1 1" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="av-loader-text">
+                    <div className="av-loader-title">Setting up your interview</div>
+                    <div className="av-soundwave">
+                      <div className="av-sw-bar" />
+                      <div className="av-sw-bar" />
+                      <div className="av-sw-bar" />
+                      <div className="av-sw-bar" />
+                      <div className="av-sw-bar" />
+                      <div className="av-sw-bar" />
+                      <div className="av-sw-bar" />
+                      <div className="av-sw-bar" />
+                      <div className="av-sw-bar" />
+                    </div>
+                  </div>
+
+                  <div className="av-steps">
+                    {AVATAR_LOADER_STEPS.map((label, index) => {
+                      const isDone = index < avatarLoaderStep;
+                      const isActive = index === avatarLoaderStep;
+                      const stateClass = isDone ? "done" : isActive ? "active" : "pending";
+                      return (
+                        <div key={label} className="av-step">
+                          <div className={`av-step-dot ${stateClass}`}>
+                            {isDone ? (
+                              <svg width="11" height="11" viewBox="0 0 11 11">
+                                <polyline
+                                  points="2,5.5 4.5,8 9,3"
+                                  fill="none"
+                                  stroke="#5dcaa5"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            ) : (
+                              <svg width="10" height="10" viewBox="0 0 10 10">
+                                <circle cx="5" cy="5" r="3" fill={isActive ? "#7f77dd" : "#4a4a6a"} />
+                              </svg>
+                            )}
+                          </div>
+                          <span className={`av-step-label ${stateClass}`}>{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="av-status-msg">{AVATAR_LOADER_STATUS[avatarLoaderStep]}</div>
+                </div>
+              ) : null}
               <div className={`pip-cam ${camOn ? "cam-on" : ""}`}>
                 {camOn ? (
                   <video ref={camVideoRef} className="pip-cam-video" autoPlay muted playsInline />
@@ -980,11 +1121,12 @@ function App() {
           <div className="transcript-card">
             <div className="transcript-header">
               <p>Conversation transcript</p>
-              <span>{messages.length} messages · {userMessageCount} user turns</span>
+              <span>{visibleMessages.length} messages · {userMessageCount} user turns</span>
             </div>
-            <div className="transcript-body">
-              {messages.length === 0 ? <p className="empty">No conversation yet.</p> : null}
-              {messages.map((message) => {
+            <div ref={transcriptBodyRef} className="transcript-body">
+              {!avatarReady ? <p className="empty">Transcript will appear once avatar is ready.</p> : null}
+              {avatarReady && visibleMessages.length === 0 ? <p className="empty">No conversation yet.</p> : null}
+              {visibleMessages.map((message) => {
                 const isUser = message.role === "user";
                 const isAi = message.role === "ai";
                 return (
@@ -998,7 +1140,7 @@ function App() {
                   </div>
                 );
               })}
-              {aiSpeaking ? (
+              {avatarReady && aiSpeaking ? (
                 <div className="msg">
                   <span className="msg-label ai">POSH trainer</span>
                   <div className="typing">
