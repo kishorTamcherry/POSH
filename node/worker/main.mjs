@@ -192,7 +192,7 @@ export default defineAgent({
 
     session.generateReply({
       instructions:
-        "Welcome them warmly to the SFO Technologies POSH training. Deliver only Section 1 (welcome and purpose) in a conversational way, then ask a short check-in before continuing (do not read ahead to other sections).",
+        "Welcome them warmly to the SFO Technologies POSH training. Speak clearly and a bit slower than normal, with a calm tone. Deliver only Section 1 (welcome and purpose) in a conversational way, then ask a short check-in before continuing (do not read ahead to other sections).",
     });
   },
 });

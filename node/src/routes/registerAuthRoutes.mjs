@@ -211,28 +211,46 @@ export function registerAuthRoutes(app, deps) {
     try {
       const inviteRecords = await CandidateInvitation.find({}).sort({ lastInvitedAt: -1 }).lean();
       const attendanceRecords = await CameraAttendance.find({}).lean();
+      const userRecords = await User.find({}, { email: 1, name: 1 }).lean();
 
       const attendanceByEmail = new Map(
         attendanceRecords
           .filter((row) => row?.email)
           .map((row) => [String(row.email).toLowerCase(), row]),
       );
+      const inviteByEmail = new Map(
+        inviteRecords
+          .filter((row) => row?.email)
+          .map((row) => [String(row.email).toLowerCase(), row]),
+      );
+      const userByEmail = new Map(
+        userRecords
+          .filter((row) => row?.email)
+          .map((row) => [String(row.email).toLowerCase(), String(row.name || "").trim()]),
+      );
 
-      const records = inviteRecords.map((row) => {
-        const email = String(row.email || "").toLowerCase();
-        const attendance = attendanceByEmail.get(email);
-        const attended = Boolean(attendance);
+      const allEmails = new Set([
+        ...inviteByEmail.keys(),
+        ...attendanceByEmail.keys(),
+      ]);
+
+      const records = Array.from(allEmails).map((email) => {
+        const row = inviteByEmail.get(email) || null;
+        const attendance = attendanceByEmail.get(email) || null;
         const insights = attendance ? buildAttendanceInsights(attendance) : null;
+        const candidateName =
+          String(row?.candidateName || "").trim() ||
+          String(userByEmail.get(email) || "").trim();
         return {
-          candidateName: String(row.candidateName || "").trim(),
+          candidateName,
           email,
-          invitedBy: row.invitedBy || "admin",
-          inviteCount: Number(row.inviteCount || 0),
-          firstInvitedAt: row.firstInvitedAt || row.createdAt,
-          lastInvitedAt: row.lastInvitedAt || row.updatedAt,
-          attended: Boolean(row.trainingCompleted),
-          trainingCompleted: Boolean(row.trainingCompleted),
-          completedAt: row.completedAt || null,
+          invitedBy: row?.invitedBy || "system:auto",
+          inviteCount: Number(row?.inviteCount || 0),
+          firstInvitedAt: row?.firstInvitedAt || row?.createdAt || attendance?.createdAt || null,
+          lastInvitedAt: row?.lastInvitedAt || row?.updatedAt || attendance?.updatedAt || null,
+          attended: Boolean(row?.trainingCompleted),
+          trainingCompleted: Boolean(row?.trainingCompleted),
+          completedAt: row?.completedAt || null,
           attendanceStatus: attendance?.status || "not-started",
           lastAttendedAt: attendance?.updatedAt || null,
           attendanceNote: attendance?.note || "",
@@ -249,6 +267,7 @@ export function registerAuthRoutes(app, deps) {
             : null,
         };
       });
+      records.sort((a, b) => new Date(b.lastInvitedAt || 0).getTime() - new Date(a.lastInvitedAt || 0).getTime());
 
       const totals = {
         invited: records.length,
