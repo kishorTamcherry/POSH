@@ -87,6 +87,8 @@ function App() {
   const absentSinceRef = useRef(null);
   const cameraVideoTrackRef = useRef(null);
   const completionReportedRef = useRef(false);
+  const completionEligibleRef = useRef(false);
+  const pendingAutoEndRef = useRef(false);
 
   const isLoggedIn = Boolean(token);
   const isAdminPath = useMemo(() => window.location.pathname.startsWith("/admin"), []);
@@ -234,6 +236,26 @@ function App() {
       });
     } catch {
       completionReportedRef.current = false;
+    }
+  };
+  const detectEndIntentWithAi = async (text) => {
+    if (!token) return false;
+    const userText = String(text || "").trim();
+    if (!userText) return false;
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/end-intent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ text: userText }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) return false;
+      return Boolean(payload?.endIntent);
+    } catch {
+      return false;
     }
   };
   const smoothUpsertAiMessage = (id, targetText) => {
@@ -403,7 +425,7 @@ function App() {
   }, [avatarLoading]);
 
   useEffect(() => {
-    if (isAdminPath || !token || !isLoggedIn) return;
+    if (isAdminPath || !token || !isLoggedIn || status === "offline") return;
 
     const sendAttendancePing = async () => {
       try {
@@ -434,7 +456,7 @@ function App() {
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [attendanceNote, attendanceStatus, avatarReady, camOn, isAdminPath, isLoggedIn, token]);
+  }, [attendanceNote, attendanceStatus, avatarReady, camOn, isAdminPath, isLoggedIn, status, token]);
 
   useEffect(() => {
     if (!isAdminPath || !adminToken) return;
@@ -592,6 +614,19 @@ function App() {
               role: "user",
               text: parsed.text || "",
             });
+            if (parsed?.final && completionEligibleRef.current && !pendingAutoEndRef.current) {
+              pendingAutoEndRef.current = true;
+              void (async () => {
+                try {
+                  const wantsEnd = await detectEndIntentWithAi(parsed.text);
+                  if (!wantsEnd) return;
+                  await reportTrainingCompletion();
+                  await endConversation();
+                } finally {
+                  pendingAutoEndRef.current = false;
+                }
+              })();
+            }
             return;
           }
 
@@ -609,7 +644,11 @@ function App() {
             normalizedText.includes("before we finish") &&
             normalizedText.includes("do you have any doubts")
           ) {
+            completionEligibleRef.current = true;
             void reportTrainingCompletion();
+            if (pendingAutoEndRef.current) {
+              void endConversation();
+            }
           }
         } catch {
           // Ignore malformed payloads from unrelated data topics.
@@ -979,6 +1018,8 @@ function App() {
     setAttendanceStatus("checking");
     setAttendanceNote("Verifying camera presence...");
     completionReportedRef.current = false;
+    completionEligibleRef.current = false;
+    pendingAutoEndRef.current = false;
   };
 
   const endConversation = async () => {

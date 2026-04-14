@@ -11,7 +11,11 @@ export function buildAttendanceInsights(record) {
   let lastOutAt = null;
   let outSince = null;
 
-  const isPresentSample = (sample) => Boolean(sample?.personDetected) || sample?.status === "present";
+  const classifySample = (sample) => {
+    if (Boolean(sample?.personDetected) || sample?.status === "present") return "present";
+    if (sample?.status === "away") return "away";
+    return "neutral";
+  };
 
   for (let i = 0; i < samples.length; i += 1) {
     const current = samples[i];
@@ -25,10 +29,11 @@ export function buildAttendanceInsights(record) {
     const rawDelta = Math.max(0, nextMs - currentMs);
     const deltaMs = next ? rawDelta : Math.min(rawDelta, maxTailMs);
 
-    if (isPresentSample(current)) {
+    const classification = classifySample(current);
+    if (classification === "present") {
       totalPresentMs += deltaMs;
       lastSeenAt = new Date(currentMs).toISOString();
-    } else {
+    } else if (classification === "away") {
       totalAwayMs += deltaMs;
       lastOutAt = new Date(currentMs).toISOString();
     }
@@ -37,7 +42,7 @@ export function buildAttendanceInsights(record) {
   const currentlyDetected = Boolean(record?.personDetected) || record?.status === "present";
   if (!currentlyDetected && samples.length > 0) {
     for (let i = samples.length - 1; i >= 0; i -= 1) {
-      if (!isPresentSample(samples[i])) {
+      if (classifySample(samples[i]) === "away") {
         const ts = new Date(samples[i]?.at || 0).getTime();
         if (Number.isFinite(ts)) {
           outSince = new Date(ts).toISOString();

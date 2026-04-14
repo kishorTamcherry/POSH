@@ -68,11 +68,14 @@ export function registerAuthRoutes(app, deps) {
     User,
     CameraAttendance,
     CandidateInvitation,
+    verifyHttpAuth,
     jwtSecret,
     otpExpiryMinutes,
     adminEmail,
     adminPassword,
     verifyAdminAuth,
+    openai,
+    openAiModel,
     transporter,
     emailUser,
     candidateAppUrl,
@@ -287,5 +290,46 @@ export function registerAuthRoutes(app, deps) {
       return res.status(400).json({ message: "message is required." });
     }
     return res.json({ reply: buildDemoAiReply(message) });
+  });
+
+  app.post("/ai/end-intent", verifyHttpAuth, async (req, res) => {
+    try {
+      const text = String(req.body?.text || "").trim();
+      if (!text) {
+        return res.status(400).json({ message: "text is required." });
+      }
+      if (!openai) {
+        return res.status(503).json({ message: "AI service unavailable." });
+      }
+
+      const completion = await openai.chat.completions.create({
+        model: openAiModel || "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Classify whether the user's message clearly expresses intent to END/STOP/CLOSE the current training call now. Return strict JSON only: {\"endIntent\":true|false}. Use true only for explicit or strongly implied end intent in this message.",
+          },
+          {
+            role: "user",
+            content: text,
+          },
+        ],
+      });
+
+      const raw = String(completion.choices?.[0]?.message?.content || "").trim();
+      let endIntent = false;
+      try {
+        const parsed = JSON.parse(raw);
+        endIntent = Boolean(parsed?.endIntent);
+      } catch {
+        // Safe fallback for non-JSON model output
+        endIntent = /"endIntent"\s*:\s*true/i.test(raw);
+      }
+      return res.json({ endIntent });
+    } catch (error) {
+      return res.status(500).json({ message: error.message || "Failed to classify end intent." });
+    }
   });
 }

@@ -994,6 +994,7 @@ export function AdminDashboardPage({
                             totalMinutes > 0 ? Number(((liveMinutes / totalMinutes) * 100).toFixed(1)) : 0;
                           const isLiveNow = Boolean(row?.insights?.currentlyDetected);
                           const hadLiveTime = liveMinutes > 0;
+                          const hadAwayTime = awayMinutes > 0;
                           const statusClass = row.completed
                             ? "live"
                             : isLiveNow || hadLiveTime
@@ -1005,7 +1006,9 @@ export function AdminDashboardPage({
                               ? "Completed"
                               : hadLiveTime
                                 ? "In progress"
-                                : "No data";
+                                : hadAwayTime || String(row?.note || "").toLowerCase().includes("no person")
+                                  ? "No face detected"
+                                  : "Not started";
                           return (
                             <>
                         <td>
