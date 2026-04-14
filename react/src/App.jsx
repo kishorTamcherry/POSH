@@ -358,6 +358,17 @@ function App() {
   }, [isLoggedIn]);
 
   useEffect(() => {
+    if (!camOn) return;
+    const videoEl = camVideoRef.current;
+    const stream = camStreamRef.current;
+    if (!videoEl || !stream) return;
+    if (videoEl.srcObject !== stream) {
+      videoEl.srcObject = stream;
+    }
+    void videoEl.play().catch(() => {});
+  }, [camOn]);
+
+  useEffect(() => {
     if (!isLoggedIn) return;
 
     const onKeyDown = (event) => {
