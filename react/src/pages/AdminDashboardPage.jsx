@@ -6,10 +6,14 @@ export function AdminDashboardPage({
   adminLoading,
   adminError,
   activeTab,
+  inviteName,
   inviteEmail,
   inviteSending,
   inviteMessage,
   inviteError,
+  inviteListFilter,
+  candidateListFilter,
+  dashboardListFilter,
   candidateRows,
   candidateTotals,
   candidateLoading,
@@ -18,10 +22,67 @@ export function AdminDashboardPage({
   todayLabel,
   onLogout,
   onTabChange,
+  onInviteFilterChange,
+  onCandidateFilterChange,
+  onDashboardFilterChange,
+  onInviteNameChange,
   onInviteEmailChange,
   onSendInvite,
   onSelectCandidate,
 }) {
+  const filteredInvitationRows =
+    inviteListFilter === "completed"
+      ? candidateRows.filter((row) => row.attended)
+      : inviteListFilter === "pending"
+        ? candidateRows.filter((row) => !row.attended)
+        : candidateRows;
+  const filteredCandidateRows =
+    candidateListFilter === "completed"
+      ? candidateRows.filter((row) => row.attended)
+      : candidateListFilter === "pending"
+        ? candidateRows.filter((row) => !row.attended)
+        : candidateRows;
+  const completionByEmail = new Map(
+    candidateRows.map((row) => [String(row.email || "").toLowerCase(), Boolean(row.attended)]),
+  );
+  const attendanceByEmail = new Map(
+    adminRows.map((row) => [String(row?.email || "").toLowerCase(), row]),
+  );
+  const dashboardBaseRows =
+    candidateRows.length > 0
+      ? candidateRows.map((candidate) => {
+          const email = String(candidate?.email || "").toLowerCase();
+          const attendance = attendanceByEmail.get(email);
+          return {
+            ...(attendance || {}),
+            email: candidate.email,
+            candidateName: candidate.candidateName || attendance?.candidateName || "",
+            updatedAt: attendance?.updatedAt || candidate.lastInvitedAt || candidate.firstInvitedAt || null,
+            completed: Boolean(candidate.attended),
+            insights: attendance?.insights || {
+              currentlyDetected: false,
+              presentMinutes: 0,
+              awayMinutes: 0,
+              totalTrainingMinutes: 0,
+            },
+            note: attendance?.note || "No attendance data yet.",
+          };
+        })
+      : adminRows.map((row) => ({
+          ...row,
+          completed: completionByEmail.get(String(row?.email || "").toLowerCase()) === true,
+        }));
+  const filteredDashboardRows =
+    dashboardListFilter === "completed"
+      ? dashboardBaseRows.filter((row) => row.completed === true)
+      : dashboardListFilter === "pending"
+        ? dashboardBaseRows.filter((row) => row.completed === false)
+        : dashboardListFilter === "invited"
+          ? dashboardBaseRows.filter((row) =>
+              completionByEmail.has(String(row?.email || "").toLowerCase()),
+            )
+          : dashboardBaseRows;
+
   return (
     <main className="adm-shell">
       <aside className="adm-sidebar">
@@ -90,18 +151,30 @@ export function AdminDashboardPage({
         {activeTab === "invitations" ? (
           <>
             <div className="adm-stats-grid adm-invite-stats">
-              <div className="adm-stat-card">
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${inviteListFilter === "all" ? "active" : ""}`}
+                onClick={() => onInviteFilterChange("all")}
+              >
                 <div className="adm-stat-label">Total invited</div>
                 <div className="adm-stat-val">{candidateTotals.invited}</div>
-              </div>
-              <div className="adm-stat-card">
+              </button>
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${inviteListFilter === "completed" ? "active" : ""}`}
+                onClick={() => onInviteFilterChange("completed")}
+              >
                 <div className="adm-stat-label">Completed</div>
                 <div className="adm-stat-val">{candidateTotals.attended}</div>
-              </div>
-              <div className="adm-stat-card">
+              </button>
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${inviteListFilter === "pending" ? "active" : ""}`}
+                onClick={() => onInviteFilterChange("pending")}
+              >
                 <div className="adm-stat-label">Pending</div>
                 <div className="adm-stat-val">{candidateTotals.pending}</div>
-              </div>
+              </button>
             </div>
             <div className="adm-content-row adm-invitations-layout">
               <div className="adm-card">
@@ -118,6 +191,18 @@ export function AdminDashboardPage({
                     </div>
                   </div>
                   <form className="adm-invite-form" onSubmit={onSendInvite}>
+                    <label htmlFor="invite-name" className="adm-invite-label">
+                      Candidate name
+                    </label>
+                    <input
+                      id="invite-name"
+                      type="text"
+                      value={inviteName}
+                      onChange={onInviteNameChange}
+                      placeholder="Enter candidate name"
+                      required
+                      className="adm-invite-input"
+                    />
                     <label htmlFor="invite-email" className="adm-invite-label">
                       Candidate email
                     </label>
@@ -143,27 +228,34 @@ export function AdminDashboardPage({
               <div className="adm-side-col">
                 <div className="adm-card">
                   <div className="adm-card-header">
-                    <p>Recent invitations</p>
-                    <span>Last 5 candidates</span>
+                    <p>
+                      {inviteListFilter === "completed"
+                        ? "Completed candidates"
+                        : inviteListFilter === "pending"
+                          ? "Pending candidates"
+                          : "All invited candidates"}
+                    </p>
+                    <span>{filteredInvitationRows.length} candidates</span>
                   </div>
                   <div className="adm-activity-list">
-                    {candidateRows.slice(0, 5).map((row) => (
+                    {filteredInvitationRows.map((row) => (
                       <div className="adm-activity-item" key={`inv-${row.email}`}>
                         <div className={`adm-act-dot ${row.attended ? "live" : "away"}`} />
                         <div>
-                          <p>{row.email}</p>
+                          <p>{row.candidateName || row.email}</p>
                           <span>
-                            Invited {formatAgo(row.lastInvitedAt)} · {row.attended ? "Completed" : "Pending"}
+                            {row.email} · Invited {formatAgo(row.lastInvitedAt)} ·{" "}
+                            {row.attended ? "Completed" : "Pending"}
                           </span>
                         </div>
                       </div>
                     ))}
-                    {candidateRows.length === 0 ? (
+                    {filteredInvitationRows.length === 0 ? (
                       <div className="adm-activity-item">
                         <div className="adm-act-dot away" />
                         <div>
-                          <p>No invitations sent yet</p>
-                          <span>Send an invite to get started.</span>
+                          <p>No candidates in this list</p>
+                          <span>Try another filter or send a new invite.</span>
                         </div>
                       </div>
                     ) : null}
@@ -175,18 +267,30 @@ export function AdminDashboardPage({
         ) : activeTab === "candidates" ? (
           <>
             <div className="adm-stats-grid">
-              <div className="adm-stat-card">
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${candidateListFilter === "all" ? "active" : ""}`}
+                onClick={() => onCandidateFilterChange("all")}
+              >
                 <div className="adm-stat-label">Invited candidates</div>
                 <div className="adm-stat-val">{candidateTotals.invited}</div>
-              </div>
-              <div className="adm-stat-card">
+              </button>
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${candidateListFilter === "completed" ? "active" : ""}`}
+                onClick={() => onCandidateFilterChange("completed")}
+              >
                 <div className="adm-stat-label">Attended</div>
                 <div className="adm-stat-val">{candidateTotals.attended}</div>
-              </div>
-              <div className="adm-stat-card">
+              </button>
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${candidateListFilter === "pending" ? "active" : ""}`}
+                onClick={() => onCandidateFilterChange("pending")}
+              >
                 <div className="adm-stat-label">Pending</div>
                 <div className="adm-stat-val">{candidateTotals.pending}</div>
-              </div>
+              </button>
             </div>
 
             {candidateError ? <p className="error-note">{candidateError}</p> : null}
@@ -194,7 +298,7 @@ export function AdminDashboardPage({
               <div className="adm-card">
                 <div className="adm-card-header">
                   <p>Invited candidates</p>
-                  <span>{candidateLoading ? "Refreshing..." : `Showing ${candidateRows.length} candidates`}</span>
+                  <span>{candidateLoading ? "Refreshing..." : `Showing ${filteredCandidateRows.length} candidates`}</span>
                 </div>
                 <table className="adm-table">
                   <thead>
@@ -207,7 +311,7 @@ export function AdminDashboardPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {candidateRows.map((row) => (
+                    {filteredCandidateRows.map((row) => (
                       <tr
                         key={row.email}
                         onClick={() => onSelectCandidate(row.email)}
@@ -217,8 +321,10 @@ export function AdminDashboardPage({
                           <div className="adm-candidate-cell">
                             <div className="adm-cand-avatar">{initialsFromEmail(row.email)}</div>
                             <div>
-                              <div className="adm-cand-name">{row.email}</div>
-                              <div className="adm-cand-sub">Invited by {row.invitedBy || "admin"}</div>
+                              <div className="adm-cand-name">{row.candidateName || row.email}</div>
+                              <div className="adm-cand-sub">
+                                {row.email} · Invited by {row.invitedBy || "admin"}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -232,7 +338,7 @@ export function AdminDashboardPage({
                         <td>{row.lastAttendedAt ? formatAgo(row.lastAttendedAt) : "-"}</td>
                       </tr>
                     ))}
-                    {!candidateLoading && candidateRows.length === 0 ? (
+                    {!candidateLoading && filteredCandidateRows.length === 0 ? (
                       <tr>
                         <td colSpan={5}>No invited candidates yet.</td>
                       </tr>
@@ -244,7 +350,11 @@ export function AdminDashboardPage({
                 <div className="adm-card">
                   <div className="adm-card-header">
                     <p>Candidate detail</p>
-                    <span>{selectedCandidate ? selectedCandidate.email : "Select a candidate row"}</span>
+                    <span>
+                      {selectedCandidate
+                        ? `${selectedCandidate.candidateName || selectedCandidate.email} · ${selectedCandidate.email}`
+                        : "Select a candidate row"}
+                    </span>
                   </div>
                   {!selectedCandidate ? (
                     <p className="adm-detail-empty">Click a candidate to view attendance insights.</p>
@@ -271,6 +381,10 @@ export function AdminDashboardPage({
                         <b>{formatMinutes(selectedCandidate?.insights?.awayMinutes || 0)}</b>
                       </div>
                       <div className="adm-detail-row">
+                        <span>Total Training (min)</span>
+                        <b>{formatMinutes(selectedCandidate?.insights?.totalTrainingMinutes || 0)}</b>
+                      </div>
+                      <div className="adm-detail-row">
                         <span>Updated</span>
                         <b>{selectedCandidate?.attendanceUpdatedAt ? formatAgo(selectedCandidate.attendanceUpdatedAt) : "-"}</b>
                       </div>
@@ -283,22 +397,38 @@ export function AdminDashboardPage({
         ) : (
           <>
             <div className="adm-stats-grid">
-              <div className="adm-stat-card">
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${dashboardListFilter === "all" ? "active" : ""}`}
+                onClick={() => onDashboardFilterChange("all")}
+              >
                 <div className="adm-stat-label">Total candidates</div>
                 <div className="adm-stat-val">{Math.max(candidateTotals.invited, adminStats.total)}</div>
-              </div>
-              <div className="adm-stat-card">
+              </button>
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${dashboardListFilter === "invited" ? "active" : ""}`}
+                onClick={() => onDashboardFilterChange("invited")}
+              >
                 <div className="adm-stat-label">Invited candidates</div>
                 <div className="adm-stat-val">{candidateTotals.invited}</div>
-              </div>
-              <div className="adm-stat-card">
+              </button>
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${dashboardListFilter === "completed" ? "active" : ""}`}
+                onClick={() => onDashboardFilterChange("completed")}
+              >
                 <div className="adm-stat-label">Candidates attended</div>
                 <div className="adm-stat-val">{candidateTotals.attended}</div>
-              </div>
-              <div className="adm-stat-card">
+              </button>
+              <button
+                type="button"
+                className={`adm-stat-card adm-stat-click ${dashboardListFilter === "pending" ? "active" : ""}`}
+                onClick={() => onDashboardFilterChange("pending")}
+              >
                 <div className="adm-stat-label">Candidates pending</div>
                 <div className="adm-stat-val">{candidateTotals.pending}</div>
-              </div>
+              </button>
             </div>
 
             {adminError ? <p className="error-note">{adminError}</p> : null}
@@ -306,45 +436,72 @@ export function AdminDashboardPage({
               <div className="adm-card">
                 <div className="adm-card-header">
                   <p>Candidate attendance</p>
-                  <span>{adminLoading ? "Refreshing..." : `Showing ${adminRows.length} candidates`}</span>
+                  <span>
+                    {adminLoading
+                      ? "Refreshing..."
+                      : `${filteredDashboardRows.length} candidates · ${
+                          dashboardListFilter === "completed"
+                            ? "Attended"
+                            : dashboardListFilter === "pending"
+                              ? "Pending"
+                              : dashboardListFilter === "invited"
+                                ? "Invited"
+                                : "All"
+                        }`}
+                  </span>
                 </div>
                 <table className="adm-table">
                   <thead>
                     <tr>
                       <th>Candidate</th>
-                      <th>Detected</th>
-                      <th>Out Since</th>
-                      <th>Last Seen</th>
-                      <th>In Front (min)</th>
-                      <th>Away (min)</th>
+                      <th>Live status</th>
+                      <th>Live Time (min)</th>
+                      <th>Offline Time (min)</th>
+                      <th>Total Training (min)</th>
                       <th>Updated</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {adminRows.map((row) => (
+                    {filteredDashboardRows.map((row) => (
                       <tr key={row.userId || row._id}>
+                        {(() => {
+                          const liveMinutes = Number(row?.insights?.presentMinutes || 0);
+                          const isLiveNow = Boolean(row?.insights?.currentlyDetected);
+                          const hadLiveTime = liveMinutes > 0;
+                          const statusClass = isLiveNow || hadLiveTime ? "live" : "away";
+                          const statusLabel = isLiveNow
+                            ? `Live now (${formatMinutes(liveMinutes)} min)`
+                            : hadLiveTime
+                              ? `Was live (${formatMinutes(liveMinutes)} min)`
+                              : "Offline";
+                          return (
+                            <>
                         <td>
                           <div className="adm-candidate-cell">
                             <div className="adm-cand-avatar">{initialsFromEmail(row.email || row.userId)}</div>
                             <div>
-                              <div className="adm-cand-name">{row.email || row.userId || "unknown"}</div>
+                              <div className="adm-cand-name">
+                                {row.candidateName || row.email || row.userId || "unknown"}
+                              </div>
                               <div className="adm-cand-sub">{row.note || "No note"}</div>
                             </div>
                           </div>
                         </td>
                         <td>
-                          <span className={`adm-status-pill ${row?.insights?.currentlyDetected ? "live" : "away"}`}>
-                            {row?.insights?.currentlyDetected ? "Detected" : "Not detected"}
+                          <span className={`adm-status-pill ${statusClass}`}>
+                            {statusLabel}
                           </span>
                         </td>
-                        <td>{row?.insights?.outSince ? formatAgo(row.insights.outSince) : "-"}</td>
-                        <td>{row?.insights?.lastSeenAt ? formatAgo(row.insights.lastSeenAt) : "-"}</td>
                         <td>{formatMinutes(row?.insights?.presentMinutes)}</td>
                         <td>{formatMinutes(row?.insights?.awayMinutes)}</td>
+                        <td>{formatMinutes(row?.insights?.totalTrainingMinutes)}</td>
                         <td>{formatAgo(row.updatedAt)}</td>
+                            </>
+                          );
+                        })()}
                       </tr>
                     ))}
-                    {!adminLoading && adminRows.length === 0 ? (
+                    {!adminLoading && filteredDashboardRows.length === 0 ? (
                       <tr>
                         <td colSpan={7}>No attendance data yet.</td>
                       </tr>
@@ -380,7 +537,7 @@ export function AdminDashboardPage({
                     <span>Latest updates</span>
                   </div>
                   <div className="adm-activity-list">
-                    {adminRows.slice(0, 5).map((row) => (
+                    {filteredDashboardRows.slice(0, 5).map((row) => (
                       <div className="adm-activity-item" key={`act-${row.userId || row._id}`}>
                         <div className={`adm-act-dot ${row?.insights?.currentlyDetected ? "live" : "away"}`} />
                         <div>
@@ -392,7 +549,7 @@ export function AdminDashboardPage({
                         </div>
                       </div>
                     ))}
-                    {!adminLoading && adminRows.length === 0 ? (
+                    {!adminLoading && filteredDashboardRows.length === 0 ? (
                       <div className="adm-activity-item">
                         <div className="adm-act-dot away" />
                         <div>

@@ -46,6 +46,7 @@ const cameraAttendanceSchema = new mongoose.Schema(
 
 const candidateInvitationSchema = new mongoose.Schema(
   {
+    candidateName: { type: String, default: "", trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     invitedBy: { type: String, default: "admin", trim: true },
     inviteCount: { type: Number, default: 1 },

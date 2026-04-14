@@ -254,6 +254,22 @@
   padding: 16px;
 }
 
+.adm-stat-click {
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.12s ease;
+}
+
+.adm-stat-click:hover {
+  border-color: #d6d1f8;
+  box-shadow: 0 4px 14px rgba(127, 119, 221, 0.12);
+}
+
+.adm-stat-click.active {
+  border-color: #7f77dd;
+  box-shadow: 0 0 0 2px rgba(127, 119, 221, 0.18);
+}
+
 .adm-stat-label {
   color: #888;
   font-size: 12px;

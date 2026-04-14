@@ -69,8 +69,16 @@ export function registerAttendanceRoutes(app, deps) {
         : 50;
 
       const records = await CameraAttendance.find({}).sort({ updatedAt: -1 }).limit(limit).lean();
+      const inviteRecords = await CandidateInvitation.find({}, { email: 1, candidateName: 1 }).lean();
+      const nameByEmail = new Map(
+        inviteRecords
+          .filter((row) => row?.email)
+          .map((row) => [String(row.email).toLowerCase(), String(row.candidateName || "").trim()]),
+      );
+
       const enrichedRecords = records.map((record) => ({
         ...record,
+        candidateName: nameByEmail.get(String(record.email || "").toLowerCase()) || "",
         insights: buildAttendanceInsights(record),
       }));
 

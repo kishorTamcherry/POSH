@@ -18,10 +18,13 @@ function otpTemplate(otp, otpExpiryMinutes) {
   `;
 }
 
-function invitationTemplate(candidateEmail, inviteUrl) {
+function invitationTemplate(candidateName, candidateEmail, inviteUrl) {
+  const safeName = String(candidateName || "").trim();
+  const greeting = safeName ? `Dear ${safeName},` : "Hello,";
   return `
     <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #111827;">
       <h2 style="margin-bottom: 8px;">POSH Training Invitation</h2>
+      <p style="margin-top: 0;">${greeting}</p>
       <p style="margin-top: 0;">You have been invited to attend the POSH awareness training session.</p>
       <p>Please use the link below to access your training portal:</p>
       <p style="margin: 18px 0;">
@@ -45,13 +48,13 @@ async function sendOtpMail(transporter, emailUser, email, otp, otpExpiryMinutes)
   });
 }
 
-async function sendInvitationMail(transporter, emailUser, candidateEmail, inviteUrl) {
+async function sendInvitationMail(transporter, emailUser, candidateName, candidateEmail, inviteUrl) {
   await transporter.sendMail({
     from: `"POSH Trainer" <${emailUser}>`,
     to: candidateEmail,
     subject: "Invitation to POSH training session",
     text: `You are invited to join POSH training. Open this link: ${inviteUrl}`,
-    html: invitationTemplate(candidateEmail, inviteUrl),
+    html: invitationTemplate(candidateName, candidateEmail, inviteUrl),
   });
 }
 
@@ -163,9 +166,13 @@ export function registerAuthRoutes(app, deps) {
   });
 
   app.post("/admin/invitations", verifyAdminAuth, async (req, res) => {
+    const candidateName = String(req.body?.name || "").trim();
     const candidateEmail = String(req.body?.email || "")
       .trim()
       .toLowerCase();
+    if (!candidateName) {
+      return res.status(400).json({ message: "Candidate name is required." });
+    }
     if (!candidateEmail) {
       return res.status(400).json({ message: "Candidate email is required." });
     }
@@ -179,6 +186,7 @@ export function registerAuthRoutes(app, deps) {
         { email: candidateEmail },
         {
           $set: {
+            candidateName,
             email: candidateEmail,
             invitedBy: req.user?.email || "admin",
             lastInvitedAt: new Date(),
@@ -192,7 +200,7 @@ export function registerAuthRoutes(app, deps) {
         },
         { upsert: true },
       );
-      await sendInvitationMail(transporter, emailUser, candidateEmail, inviteUrl);
+      await sendInvitationMail(transporter, emailUser, candidateName, candidateEmail, inviteUrl);
       return res.json({ message: `Invitation sent to ${candidateEmail}.` });
     } catch (error) {
       return res.status(500).json({ message: "Failed to send invitation email.", error: error.message });
@@ -216,6 +224,7 @@ export function registerAuthRoutes(app, deps) {
         const attended = Boolean(attendance);
         const insights = attendance ? buildAttendanceInsights(attendance) : null;
         return {
+          candidateName: String(row.candidateName || "").trim(),
           email,
           invitedBy: row.invitedBy || "admin",
           inviteCount: Number(row.inviteCount || 0),
@@ -235,6 +244,7 @@ export function registerAuthRoutes(app, deps) {
                 lastSeenAt: insights.lastSeenAt || null,
                 presentMinutes: Number(insights.presentMinutes || 0),
                 awayMinutes: Number(insights.awayMinutes || 0),
+                totalTrainingMinutes: Number(insights.totalTrainingMinutes || 0),
               }
             : null,
         };

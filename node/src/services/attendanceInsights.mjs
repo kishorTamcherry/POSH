@@ -56,7 +56,9 @@ export function buildAttendanceInsights(record) {
     outSince,
     totalPresentMs,
     totalAwayMs,
+    totalTrainingMs: totalPresentMs + totalAwayMs,
     presentMinutes: Number((totalPresentMs / 60000).toFixed(1)),
     awayMinutes: Number((totalAwayMs / 60000).toFixed(1)),
+    totalTrainingMinutes: Number(((totalPresentMs + totalAwayMs) / 60000).toFixed(1)),
   };
 }

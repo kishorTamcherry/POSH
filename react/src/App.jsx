@@ -52,10 +52,14 @@ function App() {
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState("");
   const [adminTab, setAdminTab] = useState("dashboard");
+  const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteMessage, setInviteMessage] = useState("");
   const [inviteError, setInviteError] = useState("");
+  const [inviteListFilter, setInviteListFilter] = useState("all");
+  const [candidateListFilter, setCandidateListFilter] = useState("all");
+  const [dashboardListFilter, setDashboardListFilter] = useState("all");
   const [candidateRows, setCandidateRows] = useState([]);
   const [candidateLoading, setCandidateLoading] = useState(false);
   const [candidateError, setCandidateError] = useState("");
@@ -804,6 +808,10 @@ function App() {
     event.preventDefault();
     setInviteMessage("");
     setInviteError("");
+    if (!inviteName.trim()) {
+      setInviteError("Enter candidate name.");
+      return;
+    }
     if (!inviteEmail || !inviteEmail.includes("@")) {
       setInviteError("Enter a valid candidate email.");
       return;
@@ -816,13 +824,14 @@ function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${adminToken}`,
         },
-        body: JSON.stringify({ email: inviteEmail }),
+        body: JSON.stringify({ name: inviteName.trim(), email: inviteEmail }),
       });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload?.message || "Failed to send invitation.");
       }
       setInviteMessage(payload?.message || "Invitation sent.");
+      setInviteName("");
       setInviteEmail("");
       try {
         const refreshResponse = await fetch(`${API_BASE_URL}/admin/candidates/invited`, {
@@ -1062,10 +1071,14 @@ function App() {
         adminLoading={adminLoading}
         adminError={adminError}
         activeTab={adminTab}
+        inviteName={inviteName}
         inviteEmail={inviteEmail}
         inviteSending={inviteSending}
         inviteMessage={inviteMessage}
         inviteError={inviteError}
+        inviteListFilter={inviteListFilter}
+        candidateListFilter={candidateListFilter}
+        dashboardListFilter={dashboardListFilter}
         candidateRows={candidateRows}
         candidateTotals={candidateTotals}
         candidateLoading={candidateLoading}
@@ -1077,6 +1090,10 @@ function App() {
           setAdminToken("");
         }}
         onTabChange={(tab) => setAdminTab(tab)}
+        onInviteFilterChange={(filter) => setInviteListFilter(filter)}
+        onCandidateFilterChange={(filter) => setCandidateListFilter(filter)}
+        onDashboardFilterChange={(filter) => setDashboardListFilter(filter)}
+        onInviteNameChange={(event) => setInviteName(event.target.value)}
         onInviteEmailChange={(event) => setInviteEmail(event.target.value)}
         onSendInvite={handleSendInvite}
         onSelectCandidate={(email) => setSelectedCandidateEmail(email)}
