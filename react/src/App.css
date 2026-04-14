@@ -282,6 +282,12 @@
   font-weight: 600;
 }
 
+.adm-stat-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #888;
+}
+
 .adm-content-row {
   display: grid;
   grid-template-columns: 1fr 320px;
@@ -410,8 +416,18 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.adm-invite-stats-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .adm-invitations-layout {
   grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.adm-invite-left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .adm-invite-body {
@@ -464,7 +480,19 @@
   gap: 8px;
 }
 
+.adm-invite-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.adm-invite-grid > div {
+  min-width: 0;
+}
+
 .adm-invite-label {
+  display: block;
+  margin-bottom: 6px;
   font-size: 12px;
   font-weight: 600;
   color: #57516f;
@@ -473,11 +501,12 @@
 .adm-invite-input-row {
   display: flex;
   gap: 10px;
+  align-items: center;
 }
 
 .adm-invite-input {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  min-width: 100%;
   padding: 11px 12px;
   border-radius: 10px;
   border: 1px solid #d9d6ee;
@@ -491,6 +520,41 @@
 
 .adm-invite-btn {
   min-width: 130px;
+}
+
+.adm-week-chart {
+  padding: 12px 16px 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 98px;
+}
+
+.adm-week-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.adm-week-col span {
+  font-size: 10px;
+  color: #888;
+}
+
+.adm-week-bar-wrap {
+  width: 100%;
+  height: 62px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.adm-week-bar {
+  width: 100%;
+  background: #534ab7;
+  border-radius: 4px 4px 0 0;
+  min-height: 6px;
 }
 
 .adm-invite-msg {
@@ -572,6 +636,7 @@
   gap: 10px;
   padding: 10px 16px;
   border-bottom: 1px solid #f8f7f5;
+  align-items: center;
 }
 
 .adm-activity-item:last-child {
@@ -594,13 +659,43 @@
 }
 
 .adm-activity-item p {
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
   color: #1a1a2e;
 }
 
 .adm-activity-item span {
-  font-size: 11px;
+  display: block;
+  font-size: 12px;
   color: #888;
+  margin-top: 1px;
+}
+
+.adm-act-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.adm-act-avatar.live {
+  background: #e1f5ee;
+  color: #0f6e56;
+}
+
+.adm-act-avatar.away {
+  background: #fcebeb;
+  color: #a32d2d;
+}
+
+.adm-activity-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .topbar {
@@ -1263,12 +1358,18 @@
 }
 
 @media (max-width: 900px) {
-  .adm-invite-stats {
+  .adm-invite-stats,
+  .adm-invite-stats-4 {
+    grid-template-columns: 1fr;
+  }
+
+  .adm-invite-grid {
     grid-template-columns: 1fr;
   }
 
   .adm-invite-input-row {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .adm-invite-btn {

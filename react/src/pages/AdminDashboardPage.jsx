@@ -30,12 +30,45 @@ export function AdminDashboardPage({
   onSendInvite,
   onSelectCandidate,
 }) {
+  const invitationStatus = (row) => {
+    if (row?.attended) return "completed";
+    const minutes = Number(row?.insights?.totalTrainingMinutes || 0);
+    if (minutes > 0) return "inprogress";
+    return "pending";
+  };
+  const statusConfig = {
+    pending: { label: "Pending", className: "away" },
+    inprogress: { label: "In progress", className: "live" },
+    completed: { label: "Completed", className: "live" },
+  };
+
   const filteredInvitationRows =
     inviteListFilter === "completed"
       ? candidateRows.filter((row) => row.attended)
       : inviteListFilter === "pending"
         ? candidateRows.filter((row) => !row.attended)
         : candidateRows;
+  const invitationStats = (() => {
+    const total = candidateRows.length;
+    const completed = candidateRows.filter((row) => invitationStatus(row) === "completed").length;
+    const inprogress = candidateRows.filter((row) => invitationStatus(row) === "inprogress").length;
+    const pending = Math.max(0, total - completed - inprogress);
+    return { total, completed, inprogress, pending };
+  })();
+  const weeklyInvites = (() => {
+    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const counts = new Array(7).fill(0);
+    for (const row of candidateRows) {
+      const ts = new Date(row?.lastInvitedAt || row?.firstInvitedAt || Date.now()).getTime();
+      if (!Number.isFinite(ts)) continue;
+      const d = new Date(ts).getDay();
+      const mondayIndex = (d + 6) % 7;
+      counts[mondayIndex] += 1;
+    }
+    return labels.map((day, index) => ({ day, val: counts[index] }));
+  })();
+  const weeklyMax = Math.max(1, ...weeklyInvites.map((item) => item.val));
+
   const filteredCandidateRows =
     candidateListFilter === "completed"
       ? candidateRows.filter((row) => row.attended)
@@ -176,14 +209,15 @@ export function AdminDashboardPage({
 
         {activeTab === "invitations" ? (
           <>
-            <div className="adm-stats-grid adm-invite-stats">
+            <div className="adm-stats-grid adm-invite-stats adm-invite-stats-4">
               <button
                 type="button"
                 className={`adm-stat-card adm-stat-click ${inviteListFilter === "all" ? "active" : ""}`}
                 onClick={() => onInviteFilterChange("all")}
               >
                 <div className="adm-stat-label">Total invited</div>
-                <div className="adm-stat-val">{candidateTotals.invited}</div>
+                <div className="adm-stat-val">{invitationStats.total}</div>
+                <div className="adm-stat-sub">All invitations</div>
               </button>
               <button
                 type="button"
@@ -191,7 +225,17 @@ export function AdminDashboardPage({
                 onClick={() => onInviteFilterChange("completed")}
               >
                 <div className="adm-stat-label">Completed</div>
-                <div className="adm-stat-val">{candidateTotals.attended}</div>
+                <div className="adm-stat-val">{invitationStats.completed}</div>
+                <div className="adm-stat-sub">Fully completed</div>
+              </button>
+              <button
+                type="button"
+                className="adm-stat-card adm-stat-click"
+                onClick={() => onInviteFilterChange("all")}
+              >
+                <div className="adm-stat-label">In progress</div>
+                <div className="adm-stat-val">{invitationStats.inprogress}</div>
+                <div className="adm-stat-sub">Started but not done</div>
               </button>
               <button
                 type="button"
@@ -199,92 +243,184 @@ export function AdminDashboardPage({
                 onClick={() => onInviteFilterChange("pending")}
               >
                 <div className="adm-stat-label">Pending</div>
-                <div className="adm-stat-val">{candidateTotals.pending}</div>
+                <div className="adm-stat-val">{invitationStats.pending}</div>
+                <div className="adm-stat-sub">Yet to start</div>
               </button>
             </div>
             <div className="adm-content-row adm-invitations-layout">
-              <div className="adm-card">
-                <div className="adm-card-header">
-                  <p>Send training invitation</p>
-                  <span>Email candidate access link</span>
-                </div>
-                <div className="adm-invite-body">
-                  <div className="adm-invite-banner">
-                    <div className="adm-invite-icon">✉</div>
-                    <div>
-                      <p>Invite a candidate to start POSH training</p>
-                      <span>The candidate receives a secure mail and appears in the Candidates tracker.</span>
-                    </div>
+              <div className="adm-invite-left">
+                <div className="adm-card">
+                  <div className="adm-card-header">
+                    <p>Send training invitation</p>
+                    <span>Email candidate access link</span>
                   </div>
-                  <form className="adm-invite-form" onSubmit={onSendInvite}>
-                    <label htmlFor="invite-name" className="adm-invite-label">
-                      Candidate name
-                    </label>
-                    <input
-                      id="invite-name"
-                      type="text"
-                      value={inviteName}
-                      onChange={onInviteNameChange}
-                      placeholder="Enter candidate name"
-                      required
-                      className="adm-invite-input"
-                    />
-                    <label htmlFor="invite-email" className="adm-invite-label">
-                      Candidate email
-                    </label>
-                    <div className="adm-invite-input-row">
-                      <input
-                        id="invite-email"
-                        type="email"
-                        value={inviteEmail}
-                        onChange={onInviteEmailChange}
-                        placeholder="candidate@company.com"
-                        required
-                        className="adm-invite-input"
-                      />
-                      <button className="adm-btn-primary adm-invite-btn" type="submit" disabled={inviteSending}>
-                        {inviteSending ? "Sending..." : "Send Invite"}
-                      </button>
+                  <div className="adm-invite-body">
+                    <div className="adm-invite-banner">
+                      <div className="adm-invite-icon">✉</div>
+                      <div>
+                        <p>Invite a candidate to start POSH training</p>
+                        <span>The candidate receives a secure mail and appears in the tracker.</span>
+                      </div>
                     </div>
-                    {inviteMessage ? <p className="adm-invite-msg success">{inviteMessage}</p> : null}
-                    {inviteError ? <p className="adm-invite-msg error">{inviteError}</p> : null}
-                  </form>
+                    <form className="adm-invite-form" onSubmit={onSendInvite}>
+                      <div className="adm-invite-grid">
+                        <div>
+                          <label htmlFor="invite-name" className="adm-invite-label">
+                            Candidate name
+                          </label>
+                          <input
+                            id="invite-name"
+                            type="text"
+                            value={inviteName}
+                            onChange={onInviteNameChange}
+                            placeholder="Enter candidate name"
+                            required
+                            className="adm-invite-input"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="invite-email" className="adm-invite-label">
+                            Candidate email
+                          </label>
+                          <input
+                            id="invite-email"
+                            type="email"
+                            value={inviteEmail}
+                            onChange={onInviteEmailChange}
+                            placeholder="candidate@company.com"
+                            required
+                            className="adm-invite-input"
+                          />
+                        </div>
+                      </div>
+                      <div className="adm-invite-input-row">
+                        <button className="adm-btn-primary adm-invite-btn" type="submit" disabled={inviteSending}>
+                          {inviteSending ? "Sending..." : "Send invite"}
+                        </button>
+                        <button type="button" className="adm-btn-outline">
+                          Bulk invite
+                        </button>
+                      </div>
+                      {inviteMessage ? <p className="adm-invite-msg success">{inviteMessage}</p> : null}
+                      {inviteError ? <p className="adm-invite-msg error">{inviteError}</p> : null}
+                    </form>
+                  </div>
+                </div>
+                <div className="adm-card">
+                  <div className="adm-card-header">
+                    <p>All candidates</p>
+                    <span>{filteredInvitationRows.length} records</span>
+                  </div>
+                  <table className="adm-table">
+                    <thead>
+                      <tr>
+                        <th>Candidate</th>
+                        <th>Status</th>
+                        <th>Progress</th>
+                        <th>Invited</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredInvitationRows.map((row) => {
+                        const st = invitationStatus(row);
+                        const cfg = statusConfig[st];
+                        const total = Number(row?.insights?.totalTrainingMinutes || 0);
+                        const progress = row.attended ? 100 : total > 0 ? 60 : 0;
+                        return (
+                          <tr key={`tbl-${row.email}`}>
+                            <td>
+                              <div className="adm-candidate-cell">
+                                <div className="adm-cand-avatar">{initialsFromEmail(row.email)}</div>
+                                <div>
+                                  <div className="adm-cand-name">{row.candidateName || row.email}</div>
+                                  <div className="adm-cand-sub">{row.email}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`adm-status-pill ${cfg.className}`}>{cfg.label}</span>
+                            </td>
+                            <td>{progress}%</td>
+                            <td>{formatAgo(row.lastInvitedAt)}</td>
+                          </tr>
+                        );
+                      })}
+                      {filteredInvitationRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={4}>No candidates in this list.</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
                 </div>
               </div>
               <div className="adm-side-col">
                 <div className="adm-card">
                   <div className="adm-card-header">
-                    <p>
-                      {inviteListFilter === "completed"
-                        ? "Completed candidates"
-                        : inviteListFilter === "pending"
-                          ? "Pending candidates"
-                          : "All invited candidates"}
-                    </p>
-                    <span>{filteredInvitationRows.length} candidates</span>
+                    <p>Activity feed</p>
+                    <span>Live</span>
                   </div>
                   <div className="adm-activity-list">
-                    {filteredInvitationRows.map((row) => (
-                      <div className="adm-activity-item" key={`inv-${row.email}`}>
-                        <div className={`adm-act-dot ${row.attended ? "live" : "away"}`} />
-                        <div>
-                          <p>{row.candidateName || row.email}</p>
-                          <span>
-                            {row.email} · Invited {formatAgo(row.lastInvitedAt)} ·{" "}
-                            {row.attended ? "Completed" : "Pending"}
-                          </span>
+                    {candidateRows.slice(0, 6).map((row) => {
+                      const st = invitationStatus(row);
+                      const cfg = statusConfig[st];
+                      const title =
+                        st === "completed"
+                          ? `${row.candidateName || row.email} completed training`
+                          : st === "inprogress"
+                            ? `${row.candidateName || row.email} opened module`
+                            : `${row.candidateName || row.email} invited`;
+                      const meta =
+                        st === "completed"
+                          ? `${formatAgo(row.lastInvitedAt)} · Certificate issued`
+                          : st === "inprogress"
+                            ? `${formatAgo(row.lastInvitedAt)} · 60% complete`
+                            : `${formatAgo(row.lastInvitedAt)} · POSH · Pending`;
+                      return (
+                        <div className="adm-activity-item" key={`act-${row.email}`}>
+                          <div className={`adm-act-avatar ${statusConfig[st].className}`}>
+                            {initialsFromEmail(row.email)}
+                          </div>
+                          <div className="adm-activity-content">
+                            <p>{title}</p>
+                            <span>{row.email}</span>
+                            <span>{meta}</span>
+                          </div>
+                          <span className={`adm-status-pill ${cfg.className}`}>{cfg.label}</span>
                         </div>
-                      </div>
-                    ))}
-                    {filteredInvitationRows.length === 0 ? (
+                      );
+                    })}
+                    {candidateRows.length === 0 ? (
                       <div className="adm-activity-item">
                         <div className="adm-act-dot away" />
                         <div>
-                          <p>No candidates in this list</p>
-                          <span>Try another filter or send a new invite.</span>
+                          <p>No activity yet</p>
+                          <span>Start by sending your first invite.</span>
                         </div>
                       </div>
                     ) : null}
+                  </div>
+                </div>
+                <div className="adm-card">
+                  <div className="adm-card-header">
+                    <p>Invites this week</p>
+                    <span>Daily activity</span>
+                  </div>
+                  <div className="adm-week-chart">
+                    {weeklyInvites.map((item) => {
+                      const h = Math.max(8, Math.round((item.val / weeklyMax) * 58));
+                      return (
+                        <div className="adm-week-col" key={item.day}>
+                          <div className="adm-week-bar-wrap">
+                            <div
+                              className="adm-week-bar"
+                              style={{ height: `${h}px`, opacity: item.val > 0 ? 1 : 0.35 }}
+                            />
+                          </div>
+                          <span>{item.day}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
