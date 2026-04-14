@@ -129,6 +129,7 @@ registerAvatarRoutes(app, {
 
 registerAttendanceRoutes(app, {
   CameraAttendance,
+  CandidateInvitation,
   verifyHttpAuth,
   verifyAdminAuth,
 });

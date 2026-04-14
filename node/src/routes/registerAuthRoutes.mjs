@@ -221,7 +221,9 @@ export function registerAuthRoutes(app, deps) {
           inviteCount: Number(row.inviteCount || 0),
           firstInvitedAt: row.firstInvitedAt || row.createdAt,
           lastInvitedAt: row.lastInvitedAt || row.updatedAt,
-          attended,
+          attended: Boolean(row.trainingCompleted),
+          trainingCompleted: Boolean(row.trainingCompleted),
+          completedAt: row.completedAt || null,
           attendanceStatus: attendance?.status || "not-started",
           lastAttendedAt: attendance?.updatedAt || null,
           attendanceNote: attendance?.note || "",
@@ -240,7 +242,7 @@ export function registerAuthRoutes(app, deps) {
 
       const totals = {
         invited: records.length,
-        attended: records.filter((row) => row.attended).length,
+        attended: records.filter((row) => row.trainingCompleted).length,
       };
       totals.pending = Math.max(0, totals.invited - totals.attended);
 

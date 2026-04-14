@@ -51,6 +51,8 @@ const candidateInvitationSchema = new mongoose.Schema(
     inviteCount: { type: Number, default: 1 },
     firstInvitedAt: { type: Date, default: Date.now },
     lastInvitedAt: { type: Date, default: Date.now },
+    trainingCompleted: { type: Boolean, default: false },
+    completedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );

@@ -82,6 +82,7 @@ function App() {
   const detectorIntervalRef = useRef(null);
   const absentSinceRef = useRef(null);
   const cameraVideoTrackRef = useRef(null);
+  const completionReportedRef = useRef(false);
 
   const isLoggedIn = Boolean(token);
   const isAdminPath = useMemo(() => window.location.pathname.startsWith("/admin"), []);
@@ -216,6 +217,20 @@ function App() {
       if (state.intervalId) clearInterval(state.intervalId);
     }
     aiSmoothStateRef.current.clear();
+  };
+  const reportTrainingCompletion = async () => {
+    if (!token || completionReportedRef.current) return;
+    completionReportedRef.current = true;
+    try {
+      await fetch(`${API_BASE_URL}/attendance/completion`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    } catch {
+      completionReportedRef.current = false;
+    }
   };
   const smoothUpsertAiMessage = (id, targetText) => {
     const safeTarget = typeof targetText === "string" ? targetText : "";
@@ -585,6 +600,13 @@ function App() {
                 ? "(interrupted)"
                 : parsed.text || "";
           smoothUpsertAiMessage(`ai-data-${parsed.id}`, displayText);
+          const normalizedText = String(displayText || "").toLowerCase();
+          if (
+            normalizedText.includes("before we finish") &&
+            normalizedText.includes("do you have any doubts")
+          ) {
+            void reportTrainingCompletion();
+          }
         } catch {
           // Ignore malformed payloads from unrelated data topics.
         }
@@ -918,6 +940,7 @@ function App() {
     setAiSpeaking(false);
     setAttendanceStatus("checking");
     setAttendanceNote("Verifying camera presence...");
+    completionReportedRef.current = false;
   };
 
   const endConversation = async () => {
