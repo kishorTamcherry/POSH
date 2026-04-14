@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as cocoSsd from "@tensorflow-models/coco-ssd";
+import "@tensorflow/tfjs";
 import { LocalAudioTrack, Room, RoomEvent, Track } from "livekit-client";
 import { io } from "socket.io-client";
 import "./App.css";
@@ -8,16 +10,16 @@ const TOKEN_STORAGE_KEY = "posh_token";
 const ACCENT = "#7f77dd";
 const NAVY = "#1a1a2e";
 const AVATAR_LOADER_STEPS = [
-  "Connecting to AI interviewer",
+  "Connecting to POSH trainer",
   "Checking microphone",
-  "Loading session context",
-  "Preparing questions",
+  "Loading POSH training plan",
+  "Preparing trainer guidance",
 ];
 const AVATAR_LOADER_STATUS = [
   "Establishing secure connection...",
   "Microphone access granted...",
-  "Loading your session profile...",
-  "AI interviewer is ready!",
+  "Loading your POSH session details...",
+  "POSH trainer is ready!",
 ];
 
 const loginStyles = {
@@ -227,6 +229,32 @@ function SentBadge({ email }) {
   );
 }
 
+function formatAgo(input) {
+  if (!input) return "n/a";
+  const ts = new Date(input).getTime();
+  if (Number.isNaN(ts)) return "n/a";
+  const diff = Math.max(0, Date.now() - ts);
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
+}
+
+function formatMinutes(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0.0";
+  return n.toFixed(1);
+}
+
+function initialsFromEmail(email) {
+  const base = String(email || "").split("@")[0] || "NA";
+  const parts = base.split(/[._-]+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+  return base.slice(0, 2).toUpperCase();
+}
+
 function App() {
   const [email, setEmail] = useState("demo@posh.app");
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
@@ -245,6 +273,11 @@ function App() {
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [avatarLoaderStep, setAvatarLoaderStep] = useState(0);
   const [avatarReady, setAvatarReady] = useState(false);
+  const [attendanceStatus, setAttendanceStatus] = useState("checking");
+  const [attendanceNote, setAttendanceNote] = useState("Verifying camera presence...");
+  const [adminRows, setAdminRows] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState("");
 
   const socketRef = useRef(null);
   const livekitRoomRef = useRef(null);
@@ -263,8 +296,16 @@ function App() {
   const cellRefs = useRef([]);
   const spacePressedRef = useRef(false);
   const aiSmoothStateRef = useRef(new Map());
+  const detectorModelRef = useRef(null);
+  const detectorIntervalRef = useRef(null);
+  const absentSinceRef = useRef(null);
+  const cameraVideoTrackRef = useRef(null);
 
   const isLoggedIn = Boolean(token);
+  const isAdminMode = useMemo(
+    () => new URLSearchParams(window.location.search).get("admin") === "1",
+    [],
+  );
   const visibleMessages = avatarReady ? messages : [];
   const userMessageCount = useMemo(
     () => visibleMessages.filter((message) => message.role === "user").length,
@@ -275,6 +316,16 @@ function App() {
     const ss = String(sessionSeconds % 60).padStart(2, "0");
     return `${mm}:${ss}`;
   }, [sessionSeconds]);
+  const adminStats = useMemo(() => {
+    const total = adminRows.length;
+    const detected = adminRows.filter((row) => row?.insights?.currentlyDetected).length;
+    const notDetected = Math.max(0, total - detected);
+    const totalPresent = adminRows.reduce(
+      (sum, row) => sum + Number(row?.insights?.presentMinutes || 0),
+      0,
+    );
+    return { total, detected, notDetected, totalPresent };
+  }, [adminRows]);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -409,6 +460,104 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const stopDetector = () => {
+      if (detectorIntervalRef.current) {
+        clearInterval(detectorIntervalRef.current);
+        detectorIntervalRef.current = null;
+      }
+      absentSinceRef.current = null;
+    };
+
+    if (!isLoggedIn || !camOn || !avatarReady) {
+      stopDetector();
+      if (!isLoggedIn) {
+        setAttendanceStatus("checking");
+        setAttendanceNote("Verifying camera presence...");
+      } else if (!camOn && avatarReady) {
+        setAttendanceStatus("away");
+        setAttendanceNote("Camera appears off. Please enable camera.");
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    const runDetection = async () => {
+      const videoEl = camVideoRef.current;
+      const cameraTrack =
+        cameraVideoTrackRef.current || camStreamRef.current?.getVideoTracks?.()[0] || null;
+      const hasLiveTrack = Boolean(
+        cameraTrack &&
+          cameraTrack.readyState === "live" &&
+          cameraTrack.enabled &&
+          !cameraTrack.muted,
+      );
+      if (!hasLiveTrack) {
+        absentSinceRef.current = null;
+        if (!cancelled) {
+          setAttendanceStatus("away");
+          setAttendanceNote("Camera appears off. Please enable camera.");
+        }
+        return;
+      }
+      if (!videoEl || videoEl.readyState < 2 || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) {
+        if (!cancelled) {
+          setAttendanceStatus("checking");
+          setAttendanceNote("Waiting for camera frames...");
+        }
+        return;
+      }
+
+      try {
+        if (!detectorModelRef.current) {
+          detectorModelRef.current = await cocoSsd.load({ base: "lite_mobilenet_v2" });
+        }
+        const predictions = await detectorModelRef.current.detect(videoEl, 6);
+        const hasPerson = predictions.some(
+          (prediction) => prediction.class === "person" && prediction.score >= 0.55,
+        );
+        if (hasPerson) {
+          absentSinceRef.current = null;
+          if (!cancelled) {
+            setAttendanceStatus("present");
+            setAttendanceNote("Candidate detected on camera.");
+          }
+          return;
+        }
+
+        if (!absentSinceRef.current) {
+          absentSinceRef.current = Date.now();
+        }
+        const awaySeconds = Math.floor((Date.now() - absentSinceRef.current) / 1000);
+        if (!cancelled) {
+          if (awaySeconds >= 10) {
+            setAttendanceStatus("away");
+            setAttendanceNote("No person detected for 10s. Please stay in frame.");
+          } else {
+            setAttendanceStatus("checking");
+            setAttendanceNote("No person detected. Waiting...");
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setAttendanceStatus("error");
+          setAttendanceNote("Object detection unavailable on this device.");
+        }
+      }
+    };
+
+    void runDetection();
+    detectorIntervalRef.current = setInterval(() => {
+      void runDetection();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      stopDetector();
+    };
+  }, [avatarReady, camOn, isLoggedIn]);
+
+  useEffect(() => {
     const container = transcriptBodyRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
@@ -425,6 +574,69 @@ function App() {
     }, 1400);
     return () => clearInterval(intervalId);
   }, [avatarLoading]);
+
+  useEffect(() => {
+    if (!token || !isLoggedIn) return;
+
+    const sendAttendancePing = async () => {
+      try {
+        await fetch(`${API_BASE_URL}/attendance/camera`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            status: attendanceStatus,
+            note: attendanceNote,
+            cameraOn: camOn,
+            avatarReady,
+            personDetected: attendanceStatus === "present",
+            roomName: null,
+            clientTs: new Date().toISOString(),
+          }),
+        });
+      } catch {
+        // best-effort telemetry; do not block UX
+      }
+    };
+
+    void sendAttendancePing();
+    const intervalId = setInterval(() => {
+      void sendAttendancePing();
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [attendanceNote, attendanceStatus, avatarReady, camOn, isLoggedIn, token]);
+
+  useEffect(() => {
+    if (!isAdminMode || !token) return;
+
+    const loadAttendance = async () => {
+      setAdminLoading(true);
+      setAdminError("");
+      try {
+        const response = await fetch(`${API_BASE_URL}/attendance/camera/latest?limit=100`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.message || "Failed to fetch attendance.");
+        }
+        setAdminRows(Array.isArray(payload?.records) ? payload.records : []);
+      } catch (error) {
+        setAdminError(error.message || "Failed to fetch attendance.");
+      } finally {
+        setAdminLoading(false);
+      }
+    };
+
+    void loadAttendance();
+    const intervalId = setInterval(() => {
+      void loadAttendance();
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [isAdminMode, token]);
 
   const setupAvatarRoom = async (jwtToken) => {
     if (avatarBootstrappedRef.current) return;
@@ -573,10 +785,23 @@ function App() {
           camStreamRef.current.getTracks().forEach((track) => track.stop());
           camStreamRef.current = null;
         }
+        if (cameraVideoTrackRef.current) {
+          cameraVideoTrackRef.current.onended = null;
+          cameraVideoTrackRef.current.onmute = null;
+          cameraVideoTrackRef.current.onunmute = null;
+          cameraVideoTrackRef.current = null;
+        }
         const camStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user" },
         });
         camStreamRef.current = camStream;
+        const camTrack = camStream.getVideoTracks()[0] || null;
+        cameraVideoTrackRef.current = camTrack;
+        if (camTrack) {
+          camTrack.onended = () => setCamOn(false);
+          camTrack.onmute = () => setCamOn(false);
+          camTrack.onunmute = () => setCamOn(true);
+        }
         if (camVideoRef.current) {
           camVideoRef.current.srcObject = camStream;
           void camVideoRef.current.play().catch(() => {});
@@ -746,6 +971,12 @@ function App() {
       camStreamRef.current.getTracks().forEach((track) => track.stop());
       camStreamRef.current = null;
     }
+    if (cameraVideoTrackRef.current) {
+      cameraVideoTrackRef.current.onended = null;
+      cameraVideoTrackRef.current.onmute = null;
+      cameraVideoTrackRef.current.onunmute = null;
+      cameraVideoTrackRef.current = null;
+    }
     if (camVideoRef.current) {
       camVideoRef.current.srcObject = null;
     }
@@ -776,6 +1007,8 @@ function App() {
     setStatus("offline");
     setSessionSeconds(0);
     setAiSpeaking(false);
+    setAttendanceStatus("checking");
+    setAttendanceNote("Verifying camera presence...");
   };
 
   const endConversation = async () => {
@@ -983,6 +1216,194 @@ function App() {
     );
   }
 
+  if (isAdminMode) {
+    const todayLabel = new Date().toLocaleDateString(undefined, {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    return (
+      <main className="adm-shell">
+        <aside className="adm-sidebar">
+          <div className="adm-sb-brand">
+            <div className="adm-sb-logo">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+                <rect x="2" y="4" width="20" height="16" rx="3" />
+                <path d="M2 8l10 6 10-6" />
+              </svg>
+            </div>
+            <div>
+              <div className="adm-sb-title">InterviewAI</div>
+              <div className="adm-sb-sub">Admin console</div>
+            </div>
+          </div>
+
+          <div className="adm-sb-section">Overview</div>
+          <div className="adm-nav-item active">Dashboard</div>
+          <div className="adm-nav-item">
+            Candidates <span className="adm-badge">{adminStats.total}</span>
+          </div>
+          <div className="adm-nav-item">Sessions</div>
+          <div className="adm-nav-item">Analytics</div>
+          <div className="adm-sb-spacer" />
+          <div className="adm-sb-user">
+            <div className="adm-sb-avatar">AD</div>
+            <div>
+              <p>Admin</p>
+              <span>admin@interviewai.io</span>
+            </div>
+          </div>
+        </aside>
+
+        <section className="adm-main">
+          <div className="adm-top">
+            <div>
+              <div className="adm-page-title">Dashboard</div>
+              <div className="adm-page-sub">{todayLabel}</div>
+            </div>
+            <div className="adm-actions">
+              <button className="adm-btn-outline" onClick={() => window.location.assign("/")}>
+                Open Training UI
+              </button>
+              <button
+                className="adm-btn-primary"
+                onClick={() => {
+                  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+                  setToken("");
+                }}
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+
+          <div className="adm-stats-grid">
+            <div className="adm-stat-card">
+              <div className="adm-stat-label">Candidates tracked</div>
+              <div className="adm-stat-val">{adminStats.total}</div>
+            </div>
+            <div className="adm-stat-card">
+              <div className="adm-stat-label">Detected now</div>
+              <div className="adm-stat-val">{adminStats.detected}</div>
+            </div>
+            <div className="adm-stat-card">
+              <div className="adm-stat-label">Not detected</div>
+              <div className="adm-stat-val">{adminStats.notDetected}</div>
+            </div>
+            <div className="adm-stat-card">
+              <div className="adm-stat-label">Total present minutes</div>
+              <div className="adm-stat-val">{formatMinutes(adminStats.totalPresent)}</div>
+            </div>
+          </div>
+
+          {adminError ? <p className="error-note">{adminError}</p> : null}
+          <div className="adm-content-row">
+            <div className="adm-card">
+              <div className="adm-card-header">
+                <p>Candidate attendance</p>
+                <span>{adminLoading ? "Refreshing..." : `Showing ${adminRows.length} candidates`}</span>
+              </div>
+              <table className="adm-table">
+                <thead>
+                  <tr>
+                    <th>Candidate</th>
+                    <th>Detected</th>
+                    <th>Out Since</th>
+                    <th>Last Seen</th>
+                    <th>In Front (min)</th>
+                    <th>Away (min)</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminRows.map((row) => (
+                    <tr key={row.userId || row._id}>
+                      <td>
+                        <div className="adm-candidate-cell">
+                          <div className="adm-cand-avatar">{initialsFromEmail(row.email || row.userId)}</div>
+                          <div>
+                            <div className="adm-cand-name">{row.email || row.userId || "unknown"}</div>
+                            <div className="adm-cand-sub">{row.note || "No note"}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`adm-status-pill ${row?.insights?.currentlyDetected ? "live" : "away"}`}>
+                          {row?.insights?.currentlyDetected ? "Detected" : "Not detected"}
+                        </span>
+                      </td>
+                      <td>{row?.insights?.outSince ? formatAgo(row.insights.outSince) : "-"}</td>
+                      <td>{row?.insights?.lastSeenAt ? formatAgo(row.insights.lastSeenAt) : "-"}</td>
+                      <td>{formatMinutes(row?.insights?.presentMinutes)}</td>
+                      <td>{formatMinutes(row?.insights?.awayMinutes)}</td>
+                      <td>{formatAgo(row.updatedAt)}</td>
+                    </tr>
+                  ))}
+                  {!adminLoading && adminRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={7}>No attendance data yet.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="adm-side-col">
+              <div className="adm-card">
+                <div className="adm-card-header">
+                  <p>Presence split</p>
+                  <span>Current snapshot</span>
+                </div>
+                <div className="adm-donut-wrap">
+                  <div className="adm-donut-stat">{adminStats.total ? `${Math.round((adminStats.detected / adminStats.total) * 100)}%` : "0%"}</div>
+                  <div className="adm-donut-sub">currently detected</div>
+                  <div className="adm-legend-row">
+                    <span>Detected</span>
+                    <b>{adminStats.detected}</b>
+                  </div>
+                  <div className="adm-legend-row">
+                    <span>Not detected</span>
+                    <b>{adminStats.notDetected}</b>
+                  </div>
+                </div>
+              </div>
+              <div className="adm-card">
+                <div className="adm-card-header">
+                  <p>Live activity</p>
+                  <span>Latest updates</span>
+                </div>
+                <div className="adm-activity-list">
+                  {adminRows.slice(0, 5).map((row) => (
+                    <div className="adm-activity-item" key={`act-${row.userId || row._id}`}>
+                      <div className={`adm-act-dot ${row?.insights?.currentlyDetected ? "live" : "away"}`} />
+                      <div>
+                        <p>
+                          {(row.email || row.userId || "Candidate")} is{" "}
+                          {row?.insights?.currentlyDetected ? "in frame" : "out of frame"}
+                        </p>
+                        <span>{formatAgo(row.updatedAt)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {!adminLoading && adminRows.length === 0 ? (
+                    <div className="adm-activity-item">
+                      <div className="adm-act-dot away" />
+                      <div>
+                        <p>No recent activity</p>
+                        <span>Waiting for pings...</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="interview-root">
       <div className="topbar">
@@ -1051,7 +1472,7 @@ function App() {
                   </div>
 
                   <div className="av-loader-text">
-                    <div className="av-loader-title">Setting up your interview</div>
+                    <div className="av-loader-title">Setting up your POSH training</div>
                     <div className="av-soundwave">
                       <div className="av-sw-bar" />
                       <div className="av-sw-bar" />

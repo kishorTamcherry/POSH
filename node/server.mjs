@@ -48,6 +48,40 @@ const userSchema = new mongoose.Schema(
 );
 const User = mongoose.model("User", userSchema);
 
+const cameraAttendanceSchema = new mongoose.Schema(
+  {
+    userId: { type: String, required: true, unique: true, index: true },
+    email: { type: String, required: true, lowercase: true, trim: true },
+    roomName: { type: String, default: null },
+    status: {
+      type: String,
+      enum: ["present", "away", "checking", "error"],
+      required: true,
+    },
+    note: { type: String, default: "" },
+    cameraOn: { type: Boolean, default: false },
+    avatarReady: { type: Boolean, default: false },
+    personDetected: { type: Boolean, default: false },
+    clientTs: { type: Date, default: null },
+    samples: [
+      {
+        at: { type: Date, default: Date.now },
+        status: {
+          type: String,
+          enum: ["present", "away", "checking", "error"],
+          required: true,
+        },
+        note: { type: String, default: "" },
+        cameraOn: { type: Boolean, default: false },
+        avatarReady: { type: Boolean, default: false },
+        personDetected: { type: Boolean, default: false },
+      },
+    ],
+  },
+  { timestamps: true },
+);
+const CameraAttendance = mongoose.model("CameraAttendance", cameraAttendanceSchema);
+
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_SMTP_HOST || "smtp.office365.com",
   port: Number(process.env.EMAIL_SMTP_PORT || 587),
@@ -186,6 +220,71 @@ function verifyHttpAuth(req, res, next) {
   } catch {
     return res.status(401).json({ message: "Invalid auth token." });
   }
+}
+
+function buildAttendanceInsights(record) {
+  const samples = Array.isArray(record?.samples) ? [...record.samples] : [];
+  samples.sort((a, b) => new Date(a?.at || 0).getTime() - new Date(b?.at || 0).getTime());
+  const nowMs = Date.now();
+  const maxTailMs = 10_000;
+
+  let totalPresentMs = 0;
+  let totalAwayMs = 0;
+  let firstSampleAt = null;
+  let lastSeenAt = null;
+  let lastOutAt = null;
+  let outSince = null;
+
+  const isPresentSample = (sample) =>
+    Boolean(sample?.personDetected) || sample?.status === "present";
+
+  for (let i = 0; i < samples.length; i += 1) {
+    const current = samples[i];
+    const currentMs = new Date(current?.at || 0).getTime();
+    if (!Number.isFinite(currentMs)) continue;
+    if (firstSampleAt === null) firstSampleAt = new Date(currentMs).toISOString();
+
+    const next = samples[i + 1];
+    const nextMsRaw = next ? new Date(next?.at || 0).getTime() : nowMs;
+    const nextMs = Number.isFinite(nextMsRaw) ? nextMsRaw : currentMs;
+    const rawDelta = Math.max(0, nextMs - currentMs);
+    const deltaMs = next ? rawDelta : Math.min(rawDelta, maxTailMs);
+
+    if (isPresentSample(current)) {
+      totalPresentMs += deltaMs;
+      lastSeenAt = new Date(currentMs).toISOString();
+    } else {
+      totalAwayMs += deltaMs;
+      lastOutAt = new Date(currentMs).toISOString();
+    }
+  }
+
+  const currentlyDetected = Boolean(record?.personDetected) || record?.status === "present";
+  if (!currentlyDetected && samples.length > 0) {
+    for (let i = samples.length - 1; i >= 0; i -= 1) {
+      if (!isPresentSample(samples[i])) {
+        const ts = new Date(samples[i]?.at || 0).getTime();
+        if (Number.isFinite(ts)) {
+          outSince = new Date(ts).toISOString();
+        }
+        break;
+      }
+    }
+  }
+
+  const sampleCount = samples.length;
+  return {
+    sampleCount,
+    firstSampleAt,
+    currentlyDetected,
+    lastSeenAt,
+    lastOutAt,
+    outSince,
+    totalPresentMs,
+    totalAwayMs,
+    presentMinutes: Number((totalPresentMs / 60000).toFixed(1)),
+    awayMinutes: Number((totalAwayMs / 60000).toFixed(1)),
+  };
 }
 
 async function createLivekitToken({ identity, name, roomName }) {
@@ -443,6 +542,87 @@ app.post("/avatar/bey/end", verifyHttpAuth, async (req, res) => {
   } catch (error) {
     console.error("[BEY] end conversation failed", error.message);
     return res.status(500).json({ message: error.message || "Failed to end conversation." });
+  }
+});
+
+app.post("/attendance/camera", verifyHttpAuth, async (req, res) => {
+  try {
+    const {
+      status = "checking",
+      note = "",
+      cameraOn = false,
+      avatarReady = false,
+      personDetected = false,
+      roomName = null,
+      clientTs = null,
+    } = req.body || {};
+
+    const allowedStatuses = new Set(["present", "away", "checking", "error"]);
+    const safeStatus = allowedStatuses.has(status) ? status : "checking";
+
+    const safeNote = typeof note === "string" ? note.slice(0, 240) : "";
+    const safeRoomName = typeof roomName === "string" ? roomName : null;
+    const safeClientTs = clientTs ? new Date(clientTs) : null;
+
+    await CameraAttendance.updateOne(
+      { userId: req.user.sub },
+      {
+        $set: {
+          email: req.user.email,
+          roomName: safeRoomName,
+          status: safeStatus,
+          note: safeNote,
+          cameraOn: Boolean(cameraOn),
+          avatarReady: Boolean(avatarReady),
+          personDetected: Boolean(personDetected),
+          clientTs: safeClientTs,
+        },
+        $push: {
+          samples: {
+            $each: [
+              {
+                at: safeClientTs || new Date(),
+                status: safeStatus,
+                note: safeNote,
+                cameraOn: Boolean(cameraOn),
+                avatarReady: Boolean(avatarReady),
+                personDetected: Boolean(personDetected),
+              },
+            ],
+            $slice: -500,
+          },
+        },
+      },
+      { upsert: true },
+    );
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || "Failed to persist camera attendance." });
+  }
+});
+
+app.get("/attendance/camera/latest", verifyHttpAuth, async (req, res) => {
+  try {
+    const parsedLimit = Number(req.query.limit || 50);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 200) : 50;
+
+    const records = await CameraAttendance.find({})
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const enrichedRecords = records.map((record) => ({
+      ...record,
+      insights: buildAttendanceInsights(record),
+    }));
+
+    return res.json({
+      count: enrichedRecords.length,
+      records: enrichedRecords,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || "Failed to load camera attendance." });
   }
 });
 
