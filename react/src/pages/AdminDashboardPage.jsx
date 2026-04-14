@@ -77,11 +77,37 @@ export function AdminDashboardPage({
       ? dashboardBaseRows.filter((row) => row.completed === true)
       : dashboardListFilter === "pending"
         ? dashboardBaseRows.filter((row) => row.completed === false)
+        : dashboardListFilter === "started"
+          ? dashboardBaseRows.filter((row) => Number(row?.insights?.totalTrainingMinutes || 0) > 0)
         : dashboardListFilter === "invited"
           ? dashboardBaseRows.filter((row) =>
               completionByEmail.has(String(row?.email || "").toLowerCase()),
             )
           : dashboardBaseRows;
+  const dashboardMetrics = (() => {
+    const invited = dashboardBaseRows.length;
+    const startedRows = dashboardBaseRows.filter(
+      (row) => Number(row?.insights?.totalTrainingMinutes || 0) > 0,
+    );
+    const started = startedRows.length;
+    const completed = dashboardBaseRows.filter((row) => row.completed === true).length;
+    const pending = Math.max(0, invited - completed);
+    const avgPresencePct = startedRows.length
+      ? startedRows.reduce((sum, row) => {
+          const present = Number(row?.insights?.presentMinutes || 0);
+          const away = Number(row?.insights?.awayMinutes || 0);
+          const total = present + away;
+          return sum + (total > 0 ? (present / total) * 100 : 0);
+        }, 0) / startedRows.length
+      : 0;
+    return {
+      invited,
+      started,
+      completed,
+      pending,
+      avgPresencePct: Number(avgPresencePct.toFixed(1)),
+    };
+  })();
 
   return (
     <main className="adm-shell">
@@ -402,24 +428,24 @@ export function AdminDashboardPage({
                 className={`adm-stat-card adm-stat-click ${dashboardListFilter === "all" ? "active" : ""}`}
                 onClick={() => onDashboardFilterChange("all")}
               >
-                <div className="adm-stat-label">Total candidates</div>
-                <div className="adm-stat-val">{Math.max(candidateTotals.invited, adminStats.total)}</div>
+                <div className="adm-stat-label">Invited candidates</div>
+                <div className="adm-stat-val">{dashboardMetrics.invited}</div>
               </button>
               <button
                 type="button"
-                className={`adm-stat-card adm-stat-click ${dashboardListFilter === "invited" ? "active" : ""}`}
-                onClick={() => onDashboardFilterChange("invited")}
+                className={`adm-stat-card adm-stat-click ${dashboardListFilter === "started" ? "active" : ""}`}
+                onClick={() => onDashboardFilterChange("started")}
               >
-                <div className="adm-stat-label">Invited candidates</div>
-                <div className="adm-stat-val">{candidateTotals.invited}</div>
+                <div className="adm-stat-label">Started training</div>
+                <div className="adm-stat-val">{dashboardMetrics.started}</div>
               </button>
               <button
                 type="button"
                 className={`adm-stat-card adm-stat-click ${dashboardListFilter === "completed" ? "active" : ""}`}
                 onClick={() => onDashboardFilterChange("completed")}
               >
-                <div className="adm-stat-label">Candidates attended</div>
-                <div className="adm-stat-val">{candidateTotals.attended}</div>
+                <div className="adm-stat-label">Completed training</div>
+                <div className="adm-stat-val">{dashboardMetrics.completed}</div>
               </button>
               <button
                 type="button"
@@ -427,7 +453,7 @@ export function AdminDashboardPage({
                 onClick={() => onDashboardFilterChange("pending")}
               >
                 <div className="adm-stat-label">Candidates pending</div>
-                <div className="adm-stat-val">{candidateTotals.pending}</div>
+                <div className="adm-stat-val">{dashboardMetrics.pending}</div>
               </button>
             </div>
 
@@ -454,10 +480,11 @@ export function AdminDashboardPage({
                   <thead>
                     <tr>
                       <th>Candidate</th>
-                      <th>Live status</th>
+                      <th>Status</th>
                       <th>Live Time (min)</th>
                       <th>Offline Time (min)</th>
                       <th>Total Training (min)</th>
+                      <th>Presence %</th>
                       <th>Updated</th>
                     </tr>
                   </thead>
@@ -466,14 +493,24 @@ export function AdminDashboardPage({
                       <tr key={row.userId || row._id}>
                         {(() => {
                           const liveMinutes = Number(row?.insights?.presentMinutes || 0);
+                          const awayMinutes = Number(row?.insights?.awayMinutes || 0);
+                          const totalMinutes = Number(row?.insights?.totalTrainingMinutes || 0);
+                          const presencePct =
+                            totalMinutes > 0 ? Number(((liveMinutes / totalMinutes) * 100).toFixed(1)) : 0;
                           const isLiveNow = Boolean(row?.insights?.currentlyDetected);
                           const hadLiveTime = liveMinutes > 0;
-                          const statusClass = isLiveNow || hadLiveTime ? "live" : "away";
+                          const statusClass = row.completed
+                            ? "live"
+                            : isLiveNow || hadLiveTime
+                              ? "live"
+                              : "away";
                           const statusLabel = isLiveNow
-                            ? `Live now (${formatMinutes(liveMinutes)} min)`
-                            : hadLiveTime
-                              ? `Was live (${formatMinutes(liveMinutes)} min)`
-                              : "Offline";
+                            ? "Live now"
+                            : row.completed
+                              ? "Completed"
+                              : hadLiveTime
+                                ? "In progress"
+                                : "No data";
                           return (
                             <>
                         <td>
@@ -493,8 +530,9 @@ export function AdminDashboardPage({
                           </span>
                         </td>
                         <td>{formatMinutes(row?.insights?.presentMinutes)}</td>
-                        <td>{formatMinutes(row?.insights?.awayMinutes)}</td>
+                        <td>{formatMinutes(awayMinutes)}</td>
                         <td>{formatMinutes(row?.insights?.totalTrainingMinutes)}</td>
+                        <td>{totalMinutes > 0 ? `${presencePct}%` : "-"}</td>
                         <td>{formatAgo(row.updatedAt)}</td>
                             </>
                           );
@@ -513,21 +551,27 @@ export function AdminDashboardPage({
               <div className="adm-side-col">
                 <div className="adm-card">
                   <div className="adm-card-header">
-                    <p>Presence split</p>
-                    <span>Current snapshot</span>
+                    <p>Training overview</p>
+                    <span>Simple summary</span>
                   </div>
                   <div className="adm-donut-wrap">
-                    <div className="adm-donut-stat">
-                      {adminStats.total ? `${Math.round((adminStats.detected / adminStats.total) * 100)}%` : "0%"}
-                    </div>
-                    <div className="adm-donut-sub">currently detected</div>
+                    <div className="adm-donut-stat">{dashboardMetrics.completed}</div>
+                    <div className="adm-donut-sub">candidates completed</div>
                     <div className="adm-legend-row">
-                      <span>Detected</span>
-                      <b>{adminStats.detected}</b>
+                      <span>Started</span>
+                      <b>{dashboardMetrics.started}</b>
                     </div>
                     <div className="adm-legend-row">
-                      <span>Not detected</span>
-                      <b>{adminStats.notDetected}</b>
+                      <span>Pending</span>
+                      <b>{dashboardMetrics.pending}</b>
+                    </div>
+                    <div className="adm-legend-row">
+                      <span>Completion rate</span>
+                      <b>
+                        {dashboardMetrics.invited
+                          ? `${Math.round((dashboardMetrics.completed / dashboardMetrics.invited) * 100)}%`
+                          : "0%"}
+                      </b>
                     </div>
                   </div>
                 </div>
