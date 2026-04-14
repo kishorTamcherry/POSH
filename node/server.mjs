@@ -25,6 +25,8 @@ const livekitUrl = process.env.LIVEKIT_URL || "";
 const livekitApiKey = process.env.LIVEKIT_API_KEY || "";
 const livekitApiSecret = process.env.LIVEKIT_API_SECRET || "";
 const livekitAgentName = process.env.LIVEKIT_AGENT_NAME || "posh-bey-agent";
+const adminEmail = (process.env.ADMIN_EMAIL || "admin@posh.local").trim().toLowerCase();
+const adminPassword = process.env.ADMIN_PASSWORD || "change-me";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const roomServiceClient =
@@ -215,10 +217,31 @@ function verifyHttpAuth(req, res, next) {
 
   try {
     const payload = jwt.verify(token, jwtSecret);
+    if (payload?.role && payload.role !== "candidate") {
+      return res.status(403).json({ message: "Candidate access only." });
+    }
     req.user = payload;
     return next();
   } catch {
     return res.status(401).json({ message: "Invalid auth token." });
+  }
+}
+
+function verifyAdminAuth(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    return res.status(401).json({ message: "Missing bearer token." });
+  }
+  try {
+    const payload = jwt.verify(token, jwtSecret);
+    if (payload?.role !== "admin") {
+      return res.status(403).json({ message: "Admin access only." });
+    }
+    req.admin = payload;
+    return next();
+  } catch {
+    return res.status(401).json({ message: "Invalid admin token." });
   }
 }
 
@@ -394,7 +417,7 @@ app.post("/auth/login", async (req, res) => {
 
   const user = { id: userRecord.id, name: userRecord.name, email: userRecord.email };
 
-  const token = jwt.sign({ sub: user.id, email: user.email, name: user.name }, jwtSecret, {
+  const token = jwt.sign({ sub: user.id, email: user.email, name: user.name, role: "candidate" }, jwtSecret, {
     expiresIn: "8h",
   });
 
@@ -404,6 +427,30 @@ app.post("/auth/login", async (req, res) => {
   await userRecord.save();
 
   return res.json({ token, user });
+});
+
+app.post("/admin/login", async (req, res) => {
+  const email = String(req.body?.email || "")
+    .trim()
+    .toLowerCase();
+  const password = String(req.body?.password || "");
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and password are required." });
+  }
+  if (email !== adminEmail || password !== adminPassword) {
+    return res.status(401).json({ message: "Invalid admin credentials." });
+  }
+
+  const token = jwt.sign(
+    { sub: `admin:${email}`, email, name: "Admin", role: "admin" },
+    jwtSecret,
+    { expiresIn: "8h" },
+  );
+  return res.json({
+    token,
+    admin: { email, role: "admin" },
+  });
 });
 
 app.post("/ai/respond", (req, res) => {
@@ -602,7 +649,7 @@ app.post("/attendance/camera", verifyHttpAuth, async (req, res) => {
   }
 });
 
-app.get("/attendance/camera/latest", verifyHttpAuth, async (req, res) => {
+app.get("/attendance/camera/latest", verifyAdminAuth, async (req, res) => {
   try {
     const parsedLimit = Number(req.query.limit || 50);
     const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 200) : 50;

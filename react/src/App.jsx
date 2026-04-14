@@ -7,6 +7,7 @@ import "./App.css";
 
 const API_BASE_URL = "http://localhost:4000";
 const TOKEN_STORAGE_KEY = "posh_token";
+const ADMIN_TOKEN_STORAGE_KEY = "posh_admin_token";
 const ACCENT = "#7f77dd";
 const NAVY = "#1a1a2e";
 const AVATAR_LOADER_STEPS = [
@@ -275,6 +276,9 @@ function App() {
   const [avatarReady, setAvatarReady] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState("checking");
   const [attendanceNote, setAttendanceNote] = useState("Verifying camera presence...");
+  const [adminToken, setAdminToken] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [adminRows, setAdminRows] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState("");
@@ -302,10 +306,8 @@ function App() {
   const cameraVideoTrackRef = useRef(null);
 
   const isLoggedIn = Boolean(token);
-  const isAdminMode = useMemo(
-    () => new URLSearchParams(window.location.search).get("admin") === "1",
-    [],
-  );
+  const isAdminPath = useMemo(() => window.location.pathname.startsWith("/admin"), []);
+  const isAdminLoggedIn = Boolean(adminToken);
   const visibleMessages = avatarReady ? messages : [];
   const userMessageCount = useMemo(
     () => visibleMessages.filter((message) => message.role === "user").length,
@@ -328,13 +330,20 @@ function App() {
   }, [adminRows]);
 
   useEffect(() => {
-    const storedToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
-    if (storedToken) {
-      setToken(storedToken);
-      setStatus("connecting");
-      connectSocket(storedToken);
+    if (isAdminPath) {
+      const storedAdminToken = window.localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
+      if (storedAdminToken) {
+        setAdminToken(storedAdminToken);
+      }
+      return;
     }
-  }, []);
+    const storedCandidateToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (storedCandidateToken) {
+      setToken(storedCandidateToken);
+      setStatus("connecting");
+      connectSocket(storedCandidateToken);
+    }
+  }, [isAdminPath]);
 
   useEffect(() => {
     return () => {
@@ -350,12 +359,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (isAdminPath || !isLoggedIn) return;
     const intervalId = setInterval(() => {
       setSessionSeconds((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [isLoggedIn]);
+  }, [isAdminPath, isLoggedIn]);
 
   useEffect(() => {
     if (!camOn) return;
@@ -587,7 +596,7 @@ function App() {
   }, [avatarLoading]);
 
   useEffect(() => {
-    if (!token || !isLoggedIn) return;
+    if (isAdminPath || !token || !isLoggedIn) return;
 
     const sendAttendancePing = async () => {
       try {
@@ -618,17 +627,17 @@ function App() {
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [attendanceNote, attendanceStatus, avatarReady, camOn, isLoggedIn, token]);
+  }, [attendanceNote, attendanceStatus, avatarReady, camOn, isAdminPath, isLoggedIn, token]);
 
   useEffect(() => {
-    if (!isAdminMode || !token) return;
+    if (!isAdminPath || !adminToken) return;
 
     const loadAttendance = async () => {
       setAdminLoading(true);
       setAdminError("");
       try {
         const response = await fetch(`${API_BASE_URL}/attendance/camera/latest?limit=100`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${adminToken}` },
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -647,7 +656,7 @@ function App() {
       void loadAttendance();
     }, 5000);
     return () => clearInterval(intervalId);
-  }, [isAdminMode, token]);
+  }, [adminToken, isAdminPath]);
 
   const setupAvatarRoom = async (jwtToken) => {
     if (avatarBootstrappedRef.current) return;
@@ -927,6 +936,27 @@ function App() {
     }
   };
 
+  const handleAdminLogin = async (event) => {
+    event.preventDefault();
+    setAdminError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.message || "Admin login failed.");
+      }
+      setAdminToken(payload.token);
+      window.localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, payload.token);
+      setAdminPassword("");
+    } catch (error) {
+      setAdminError(error.message || "Admin login failed.");
+    }
+  };
+
   const handleCellChange = (i, event) => {
     const value = event.target.value.replace(/\D/g, "").slice(0, 1);
     setOtpDigits((prev) => {
@@ -1085,7 +1115,7 @@ function App() {
     await endHoldToTalk();
   };
 
-  if (!isLoggedIn) {
+  if (!isLoggedIn && !isAdminPath) {
     const stepConfig = otpRequested
       ? {
           title: "Check your inbox",
@@ -1227,7 +1257,45 @@ function App() {
     );
   }
 
-  if (isAdminMode) {
+  if (isAdminPath) {
+    if (!isAdminLoggedIn) {
+      return (
+        <main style={loginStyles.scene}>
+          <section style={loginStyles.panel}>
+            <div style={loginStyles.panelTop}>
+              <div style={loginStyles.brandMark}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+                  <rect x="2" y="4" width="20" height="16" rx="3" />
+                  <path d="M2 8l10 6 10-6" />
+                </svg>
+              </div>
+              <p style={loginStyles.topTitle}>Admin Sign In</p>
+              <p style={loginStyles.topSub}>Use admin credentials to access attendance analytics.</p>
+            </div>
+            <form style={loginStyles.panelBody} onSubmit={handleAdminLogin}>
+              <span style={loginStyles.fieldLabel}>Admin email</span>
+              <TextInput
+                type="email"
+                value={adminEmail}
+                onChange={(event) => setAdminEmail(event.target.value)}
+                placeholder="admin@company.com"
+                autoFocus
+              />
+              <span style={{ ...loginStyles.fieldLabel, marginTop: "14px" }}>Password</span>
+              <TextInput
+                type="password"
+                value={adminPassword}
+                onChange={(event) => setAdminPassword(event.target.value)}
+                placeholder="Enter password"
+              />
+              <PrimaryBtn type="submit">Sign in to Admin</PrimaryBtn>
+              {adminError ? <p className="error">{adminError}</p> : null}
+            </form>
+          </section>
+        </main>
+      );
+    }
+
     const todayLabel = new Date().toLocaleDateString(undefined, {
       weekday: "long",
       year: "numeric",
@@ -1280,8 +1348,8 @@ function App() {
               <button
                 className="adm-btn-primary"
                 onClick={() => {
-                  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-                  setToken("");
+                  window.localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+                  setAdminToken("");
                 }}
               >
                 Logout
