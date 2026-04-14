@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { formatAgo, formatMinutes, initialsFromEmail } from "../utils/formatters.js";
 
 export function AdminDashboardPage({
@@ -28,8 +29,13 @@ export function AdminDashboardPage({
   onInviteNameChange,
   onInviteEmailChange,
   onSendInvite,
+  onBulkReminder,
   onSelectCandidate,
 }) {
+  const [selectedInvitationEmails, setSelectedInvitationEmails] = useState([]);
+  const [bulkActionBusy, setBulkActionBusy] = useState(false);
+  const [bulkActionMsg, setBulkActionMsg] = useState("");
+
   const invitationStatus = (row) => {
     if (row?.attended) return "completed";
     const minutes = Number(row?.insights?.totalTrainingMinutes || 0);
@@ -56,18 +62,65 @@ export function AdminDashboardPage({
     return { total, completed, inprogress, pending };
   })();
   const weeklyInvites = (() => {
-    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const counts = new Array(7).fill(0);
+    const now = new Date();
+    const slots = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(now);
+      d.setDate(now.getDate() - (6 - i));
+      d.setHours(0, 0, 0, 0);
+      return {
+        key: d.toISOString().slice(0, 10),
+        day: d.toLocaleDateString(undefined, { weekday: "short" }),
+        val: 0,
+      };
+    });
+    const byDay = new Map(slots.map((s) => [s.key, s]));
     for (const row of candidateRows) {
-      const ts = new Date(row?.lastInvitedAt || row?.firstInvitedAt || Date.now()).getTime();
-      if (!Number.isFinite(ts)) continue;
-      const d = new Date(ts).getDay();
-      const mondayIndex = (d + 6) % 7;
-      counts[mondayIndex] += 1;
+      const ts = new Date(row?.lastInvitedAt || row?.firstInvitedAt || Date.now());
+      if (Number.isNaN(ts.getTime())) continue;
+      ts.setHours(0, 0, 0, 0);
+      const key = ts.toISOString().slice(0, 10);
+      const slot = byDay.get(key);
+      if (slot) slot.val += 1;
     }
-    return labels.map((day, index) => ({ day, val: counts[index] }));
+    return slots;
   })();
   const weeklyMax = Math.max(1, ...weeklyInvites.map((item) => item.val));
+  const recentWeekInvited = weeklyInvites.reduce((sum, item) => sum + item.val, 0);
+  const recentWeekCompleted = candidateRows.filter((row) => {
+    const ts = new Date(row?.completedAt || 0).getTime();
+    if (!Number.isFinite(ts) || ts <= 0) return false;
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return ts >= sevenDaysAgo;
+  }).length;
+  const needsAttentionRows = useMemo(
+    () =>
+      candidateRows
+        .filter((row) => !row.attended)
+        .map((row) => {
+          const invitedAt = new Date(row?.lastInvitedAt || row?.firstInvitedAt || Date.now()).getTime();
+          const ageHours = Number.isFinite(invitedAt) ? Math.max(0, (Date.now() - invitedAt) / 3600000) : 0;
+          const status = invitationStatus(row);
+          const reason =
+            ageHours >= 72
+              ? "Pending for over 3 days"
+              : status === "inprogress"
+                ? "Started but not completed"
+                : "Invite sent, no progress yet";
+          return { ...row, ageHours, reason };
+        })
+        .filter((row) => {
+          // Show only true follow-up cases:
+          // - pending with no progress after 48h
+          // - in-progress but unfinished after 24h
+          const status = invitationStatus(row);
+          if (status === "pending") return row.ageHours >= 48;
+          if (status === "inprogress") return row.ageHours >= 24;
+          return false;
+        })
+        .sort((a, b) => b.ageHours - a.ageHours)
+        .slice(0, 5),
+    [candidateRows],
+  );
 
   const filteredCandidateRows =
     candidateListFilter === "completed"
@@ -75,6 +128,44 @@ export function AdminDashboardPage({
       : candidateListFilter === "pending"
         ? candidateRows.filter((row) => !row.attended)
         : candidateRows;
+  const isRowSelected = (email) => selectedInvitationEmails.includes(email);
+  const allFilteredSelected =
+    filteredInvitationRows.length > 0 &&
+    filteredInvitationRows.every((row) => selectedInvitationEmails.includes(row.email));
+  const toggleInvitationRow = (email) => {
+    setSelectedInvitationEmails((prev) =>
+      prev.includes(email) ? prev.filter((item) => item !== email) : [...prev, email],
+    );
+  };
+  const toggleSelectAllFiltered = () => {
+    if (allFilteredSelected) {
+      setSelectedInvitationEmails((prev) =>
+        prev.filter((email) => !filteredInvitationRows.some((row) => row.email === email)),
+      );
+      return;
+    }
+    setSelectedInvitationEmails((prev) => {
+      const next = new Set(prev);
+      for (const row of filteredInvitationRows) next.add(row.email);
+      return [...next];
+    });
+  };
+  const selectedInvitationRows = filteredInvitationRows.filter((row) =>
+    selectedInvitationEmails.includes(row.email),
+  );
+  const runBulkReminder = async () => {
+    if (!selectedInvitationRows.length || typeof onBulkReminder !== "function") return;
+    setBulkActionBusy(true);
+    setBulkActionMsg("");
+    try {
+      const result = await onBulkReminder(selectedInvitationRows);
+      setBulkActionMsg(result?.message || `Reminder sent to ${selectedInvitationRows.length} candidate(s).`);
+    } catch (error) {
+      setBulkActionMsg(error?.message || "Failed to send reminders.");
+    } finally {
+      setBulkActionBusy(false);
+    }
+  };
   const completionByEmail = new Map(
     candidateRows.map((row) => [String(row.email || "").toLowerCase(), Boolean(row.attended)]),
   );
@@ -311,9 +402,21 @@ export function AdminDashboardPage({
                     <p>All candidates</p>
                     <span>{filteredInvitationRows.length} records</span>
                   </div>
+                  {selectedInvitationRows.length > 0 ? (
+                    <div className="adm-bulk-row">
+                      <span>{selectedInvitationRows.length} selected</span>
+                      <button className="adm-btn-outline" onClick={runBulkReminder} disabled={bulkActionBusy}>
+                        {bulkActionBusy ? "Sending..." : "Send reminder"}
+                      </button>
+                      {bulkActionMsg ? <em>{bulkActionMsg}</em> : null}
+                    </div>
+                  ) : null}
                   <table className="adm-table">
                     <thead>
                       <tr>
+                        <th>
+                          <input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAllFiltered} />
+                        </th>
                         <th>Candidate</th>
                         <th>Status</th>
                         <th>Progress</th>
@@ -328,6 +431,13 @@ export function AdminDashboardPage({
                         const progress = row.attended ? 100 : total > 0 ? 60 : 0;
                         return (
                           <tr key={`tbl-${row.email}`}>
+                            <td>
+                              <input
+                                type="checkbox"
+                                checked={isRowSelected(row.email)}
+                                onChange={() => toggleInvitationRow(row.email)}
+                              />
+                            </td>
                             <td>
                               <div className="adm-candidate-cell">
                                 <div className="adm-cand-avatar">{initialsFromEmail(row.email)}</div>
@@ -347,7 +457,7 @@ export function AdminDashboardPage({
                       })}
                       {filteredInvitationRows.length === 0 ? (
                         <tr>
-                          <td colSpan={4}>No candidates in this list.</td>
+                          <td colSpan={5}>No candidates in this list.</td>
                         </tr>
                       ) : null}
                     </tbody>
@@ -403,6 +513,34 @@ export function AdminDashboardPage({
                 </div>
                 <div className="adm-card">
                   <div className="adm-card-header">
+                    <p>Needs attention</p>
+                    <span>Follow-up queue</span>
+                  </div>
+                  <div className="adm-activity-list">
+                    {needsAttentionRows.map((row) => (
+                      <div className="adm-activity-item" key={`need-${row.email}`}>
+                        <div className="adm-act-dot away" />
+                        <div className="adm-activity-content">
+                          <p>{row.candidateName || row.email}</p>
+                          <span>{row.reason}</span>
+                          <span>{row.email}</span>
+                        </div>
+                        <span className="adm-status-pill away">Pending</span>
+                      </div>
+                    ))}
+                    {needsAttentionRows.length === 0 ? (
+                      <div className="adm-activity-item">
+                        <div className="adm-act-dot live" />
+                        <div className="adm-activity-content">
+                          <p>All clear</p>
+                          <span>No pending candidates need immediate follow-up.</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="adm-card">
+                  <div className="adm-card-header">
                     <p>Invites this week</p>
                     <span>Daily activity</span>
                   </div>
@@ -412,15 +550,24 @@ export function AdminDashboardPage({
                       return (
                         <div className="adm-week-col" key={item.day}>
                           <div className="adm-week-bar-wrap">
-                            <div
-                              className="adm-week-bar"
-                              style={{ height: `${h}px`, opacity: item.val > 0 ? 1 : 0.35 }}
-                            />
+                            <div className="adm-week-bar-hit">
+                              <div
+                                className="adm-week-bar"
+                                style={{ height: `${h}px`, opacity: item.val > 0 ? 1 : 0.35 }}
+                              />
+                              <div className="adm-week-tooltip">
+                                {item.day}: {item.val} invite{item.val === 1 ? "" : "s"}
+                              </div>
+                            </div>
                           </div>
                           <span>{item.day}</span>
                         </div>
                       );
                     })}
+                  </div>
+                  <div className="adm-week-meta">
+                    <span>Invited (7d): {recentWeekInvited}</span>
+                    <span>Completed (7d): {recentWeekCompleted}</span>
                   </div>
                 </div>
               </div>

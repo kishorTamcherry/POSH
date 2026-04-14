@@ -855,6 +855,35 @@ function App() {
       setInviteSending(false);
     }
   };
+  const handleBulkReminder = async (rows) => {
+    const targets = Array.isArray(rows) ? rows : [];
+    if (targets.length === 0) return { message: "No candidates selected." };
+    let success = 0;
+    for (const row of targets) {
+      const name = String(row?.candidateName || row?.email || "").trim();
+      const email = String(row?.email || "")
+        .trim()
+        .toLowerCase();
+      if (!name || !email) continue;
+      const response = await fetch(`${API_BASE_URL}/admin/invitations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ name, email }),
+      });
+      if (response.ok) success += 1;
+    }
+    const refreshed = await fetch(`${API_BASE_URL}/admin/candidates/invited`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const payload = await refreshed.json();
+    if (refreshed.ok) {
+      setCandidateRows(Array.isArray(payload?.records) ? payload.records : []);
+    }
+    return { message: `Reminder sent to ${success}/${targets.length} candidates.` };
+  };
 
   const handleCellChange = (i, event) => {
     const value = event.target.value.replace(/\D/g, "").slice(0, 1);
@@ -1096,6 +1125,7 @@ function App() {
         onInviteNameChange={(event) => setInviteName(event.target.value)}
         onInviteEmailChange={(event) => setInviteEmail(event.target.value)}
         onSendInvite={handleSendInvite}
+        onBulkReminder={handleBulkReminder}
         onSelectCandidate={(email) => setSelectedCandidateEmail(email)}
       />
     );
