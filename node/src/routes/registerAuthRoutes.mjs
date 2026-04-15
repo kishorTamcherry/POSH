@@ -185,6 +185,21 @@ export function registerAuthRoutes(app, deps) {
 
     const inviteUrl = String(candidateAppUrl || "").trim() || "http://localhost:5173";
     try {
+      await User.updateOne(
+        { email: candidateEmail },
+        {
+          $set: {
+            email: candidateEmail,
+            name: candidateName,
+          },
+          $setOnInsert: {
+            isVerified: false,
+            otp: null,
+            otpExpires: null,
+          },
+        },
+        { upsert: true },
+      );
       await CandidateInvitation.updateOne(
         { email: candidateEmail },
         {
