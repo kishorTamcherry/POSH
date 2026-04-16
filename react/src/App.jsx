@@ -106,7 +106,10 @@ function App() {
   const pendingAutoEndRef = useRef(false);
 
   const isLoggedIn = Boolean(token);
-  const isAdminPath = useMemo(() => window.location.pathname.startsWith("/admin"), []);
+  const isAdminPath = useMemo(() => {
+    const path = String(window.location.pathname || "").toLowerCase();
+    return path.startsWith("/admin") || path.startsWith("/react/admin");
+  }, []);
   const isAdminLoggedIn = Boolean(adminToken);
   const visibleMessages = avatarReady ? messages : [];
   const userMessageCount = useMemo(
