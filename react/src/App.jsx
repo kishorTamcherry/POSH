@@ -9,7 +9,7 @@ import { CandidateLoginPage } from "./pages/CandidateLoginPage.jsx";
 import { CandidateSessionPage } from "./pages/CandidateSessionPage.jsx";
 import "./App.css";
 
-const API_BASE_URL = "http://localhost:4000";
+const API_BASE_URL = window.__POSH_API_BASE_URL__ || "/posh-api";
 const TOKEN_STORAGE_KEY = "posh_token";
 const ADMIN_TOKEN_STORAGE_KEY = "posh_admin_token";
 const AVATAR_LOADER_STEPS = [
