@@ -34,6 +34,7 @@ const adminEmail = (process.env.ADMIN_EMAIL || "admin@posh.local").trim().toLowe
 const adminPassword = process.env.ADMIN_PASSWORD || "change-me";
 const avatarIdentity = process.env.BEY_AVATAR_IDENTITY || "bey-avatar-agent";
 const candidateAppUrl = process.env.CANDIDATE_APP_URL || frontendOrigin;
+const internalApiKey = process.env.INTERNAL_API_KEY || jwtSecret;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const roomServiceClient =
@@ -135,6 +136,7 @@ registerAttendanceRoutes(app, {
   CandidateInvitation,
   verifyHttpAuth,
   verifyAdminAuth,
+  internalApiKey,
 });
 
 registerSocketHandlers(io, {

@@ -1,7 +1,7 @@
 import { buildAttendanceInsights } from "../services/attendanceInsights.mjs";
 
 export function registerAttendanceRoutes(app, deps) {
-  const { CameraAttendance, CandidateInvitation, verifyHttpAuth, verifyAdminAuth } = deps;
+  const { CameraAttendance, CandidateInvitation, verifyHttpAuth, verifyAdminAuth, internalApiKey } = deps;
 
   app.post("/attendance/camera", verifyHttpAuth, async (req, res) => {
     try {
@@ -20,12 +20,25 @@ export function registerAttendanceRoutes(app, deps) {
       const safeNote = typeof note === "string" ? note.slice(0, 240) : "";
       const safeRoomName = typeof roomName === "string" ? roomName : null;
       const safeClientTs = clientTs ? new Date(clientTs) : null;
+      const email = String(req.user?.email || "")
+        .trim()
+        .toLowerCase();
+      if (!email) {
+        return res.status(400).json({ message: "User email missing in token." });
+      }
+
+      // Enforce single cameraAttendance doc per email.
+      await CameraAttendance.deleteMany({
+        email,
+        userId: { $ne: req.user.sub },
+      });
 
       await CameraAttendance.updateOne(
-        { userId: req.user.sub },
+        { email },
         {
           $set: {
-            email: req.user.email,
+            userId: req.user.sub,
+            email,
             roomName: safeRoomName,
             status: safeStatus,
             note: safeNote,
@@ -121,6 +134,54 @@ export function registerAttendanceRoutes(app, deps) {
       return res.json({ ok: true, message: "Training marked as completed." });
     } catch (error) {
       return res.status(500).json({ message: error.message || "Failed to mark completion." });
+    }
+  });
+
+  app.post("/internal/training/completion", async (req, res) => {
+    try {
+      const key = String(req.headers["x-internal-key"] || "");
+      if (!internalApiKey || key !== internalApiKey) {
+        return res.status(401).json({ message: "Unauthorized internal request." });
+      }
+
+      const userId = String(req.body?.userId || "").trim();
+      const isLastQuestion = Boolean(req.body?.isLastQuestion);
+      if (!userId) {
+        return res.status(400).json({ message: "userId is required." });
+      }
+      if (!isLastQuestion) {
+        return res.json({ ok: true, markedCompleted: false });
+      }
+
+      const attendance = await CameraAttendance.findOne({ userId }).lean();
+      const email = String(attendance?.email || "")
+        .trim()
+        .toLowerCase();
+      if (!email) {
+        return res.status(404).json({ message: "No email found for user.", markedCompleted: false });
+      }
+
+      await CandidateInvitation.updateOne(
+        { email },
+        {
+          $set: {
+            email,
+            trainingCompleted: true,
+            completedAt: new Date(),
+            lastInvitedAt: new Date(),
+          },
+          $setOnInsert: {
+            invitedBy: "system:auto",
+            firstInvitedAt: new Date(),
+            inviteCount: 1,
+          },
+        },
+        { upsert: true },
+      );
+
+      return res.json({ ok: true, markedCompleted: true, email });
+    } catch (error) {
+      return res.status(500).json({ message: error.message || "Failed to mark completion internally." });
     }
   });
 }

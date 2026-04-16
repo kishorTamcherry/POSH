@@ -225,18 +225,8 @@ function App() {
     aiSmoothStateRef.current.clear();
   };
   const reportTrainingCompletion = async () => {
-    if (!token || completionReportedRef.current) return;
+    // Deprecated path: completion is now persisted by backend from attendance ping.
     completionReportedRef.current = true;
-    try {
-      await fetch(`${API_BASE_URL}/attendance/completion`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-    } catch {
-      completionReportedRef.current = false;
-    }
   };
   const detectEndIntentWithAi = async (text) => {
     if (!token) return false;
@@ -620,12 +610,26 @@ function App() {
                 try {
                   const wantsEnd = await detectEndIntentWithAi(parsed.text);
                   if (!wantsEnd) return;
-                  await reportTrainingCompletion();
                   await endConversation();
                 } finally {
                   pendingAutoEndRef.current = false;
                 }
               })();
+            }
+            return;
+          }
+
+          if (topic === "posh.training.status") {
+            if (parsed?.type !== "training_completion_reached") return;
+            completionEligibleRef.current = true;
+            completionReportedRef.current = true;
+            appendMessage({
+              id: `sys-complete-${Date.now()}`,
+              role: "system",
+              text: "Training completion checkpoint reached.",
+            });
+            if (pendingAutoEndRef.current) {
+              void endConversation();
             }
             return;
           }
@@ -639,13 +643,8 @@ function App() {
                 ? "(interrupted)"
                 : parsed.text || "";
           smoothUpsertAiMessage(`ai-data-${parsed.id}`, displayText);
-          const normalizedText = String(displayText || "").toLowerCase();
-          if (
-            normalizedText.includes("before we finish") &&
-            normalizedText.includes("do you have any doubts")
-          ) {
+          if (parsed?.isLastQuestion === true && !parsed?.interrupted) {
             completionEligibleRef.current = true;
-            void reportTrainingCompletion();
             if (pendingAutoEndRef.current) {
               void endConversation();
             }

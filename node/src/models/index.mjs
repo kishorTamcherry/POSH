@@ -14,7 +14,7 @@ const userSchema = new mongoose.Schema(
 const cameraAttendanceSchema = new mongoose.Schema(
   {
     userId: { type: String, required: true, unique: true, index: true },
-    email: { type: String, required: true, lowercase: true, trim: true },
+    email: { type: String, required: true, lowercase: true, trim: true, index: true },
     roomName: { type: String, default: null },
     status: {
       type: String,

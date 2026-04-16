@@ -4,12 +4,39 @@ import * as deepgram from "@livekit/agents-plugin-deepgram";
 import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 import { Assistant } from "./assistant.mjs";
+import { POSH_TRAINING_SECTIONS } from "./posh-training-script.mjs";
 
 dotenv.config();
 
 const agentName = process.env.LIVEKIT_AGENT_NAME || "posh-bey-agent";
 const livekitLlmModel = process.env.LIVEKIT_LLM_MODEL || "openai/gpt-4o-mini";
 const syncAiTranscription = process.env.LIVEKIT_SYNC_TRANSCRIPTION !== "false";
+const apiBaseUrl = process.env.API_BASE_URL || "http://localhost:4000";
+const internalApiKey = process.env.INTERNAL_API_KEY || process.env.JWT_SECRET || "";
+const completionSection =
+  POSH_TRAINING_SECTIONS.find((section) => section.title === "Closing reminder and conduct expectations") ||
+  POSH_TRAINING_SECTIONS[Math.max(0, POSH_TRAINING_SECTIONS.length - 2)];
+
+function normalizeForMatch(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isCompletionSectionReached(text) {
+  const candidate = normalizeForMatch(text);
+  if (!candidate) return false;
+  const completionBody = normalizeForMatch(completionSection?.body || "");
+  if (completionBody && completionBody.includes(candidate)) return true;
+  if (completionBody && candidate.includes(completionBody.slice(0, Math.min(80, completionBody.length)))) return true;
+  return (
+    candidate.includes("to conclude, a safe workplace is built through awareness, respect, and accountability") ||
+    candidate.includes("shall we finish up with any questions") ||
+    candidate.includes("before we finish") ||
+    candidate.includes("do you have any doubts")
+  );
+}
 
 function publishJson(room, topic, data) {
   try {
@@ -22,9 +49,36 @@ function publishJson(room, topic, data) {
   }
 }
 
+function extractUserIdFromRoomName(roomName) {
+  const match = String(roomName || "").match(/^posh-(.+)$/);
+  return match?.[1] || "";
+}
+
+async function markTrainingCompletionInternally(roomName, isLastQuestion) {
+  const userId = extractUserIdFromRoomName(roomName);
+  if (!userId || !isLastQuestion || !internalApiKey) return;
+  try {
+    const response = await fetch(`${apiBaseUrl}/internal/training/completion`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-key": internalApiKey,
+      },
+      body: JSON.stringify({ userId, isLastQuestion }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      console.warn("[completion] internal mark failed", response.status, text);
+    }
+  } catch (error) {
+    console.warn("[completion] internal mark error", error?.message || error);
+  }
+}
+
 function forwardAssistantChatToRoom(session, room, aiSpeechIdRef) {
   const { SpeechCreated } = voice.AgentSessionEventTypes;
   const forwardedItemIds = new Set();
+  let completionEventSent = false;
   const safeFlagValue = (value) => {
     if (typeof value === "function") {
       try {
@@ -61,14 +115,26 @@ function forwardAssistantChatToRoom(session, room, aiSpeechIdRef) {
               .catch((error) => console.error("sendText failed", error));
           }
         }
+        const isLastQuestion = isCompletionSectionReached(text);
         publishJson(room, "posh.ai.transcript", {
           type: "assistant_transcript",
           id: speechHandle.id,
           text,
+          isLastQuestion,
           partial: false,
           interrupted: wasInterrupted,
           timestamp: Date.now(),
         });
+        if (!completionEventSent && !wasInterrupted && isLastQuestion) {
+          completionEventSent = true;
+          void markTrainingCompletionInternally(room?.name, true);
+          publishJson(room, "posh.training.status", {
+            type: "training_completion_reached",
+            id: speechHandle.id,
+            sectionTitle: completionSection?.title || "Closing reminder and conduct expectations",
+            timestamp: Date.now(),
+          });
+        }
       }
     });
   });
@@ -169,7 +235,11 @@ export default defineAgent({
       room: ctx.room,
       agent: new Assistant({
         getSpeechId: () => aiSpeechIdRef.current,
-        publishPartial: (data) => publishJson(ctx.room, "posh.ai.transcript", data),
+        publishPartial: (data) =>
+          publishJson(ctx.room, "posh.ai.transcript", {
+            ...data,
+            isLastQuestion: isCompletionSectionReached(data?.text),
+          }),
       }),
       outputOptions: {
         // Keep AI transcript aligned with avatar playout unless explicitly disabled.

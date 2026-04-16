@@ -6,6 +6,8 @@ export function buildAttendanceInsights(record) {
 
   let totalPresentMs = 0;
   let totalAwayMs = 0;
+  let firstSampleMs = null;
+  let lastSampleMs = null;
   let firstSampleAt = null;
   let lastSeenAt = null;
   let lastOutAt = null;
@@ -21,6 +23,8 @@ export function buildAttendanceInsights(record) {
     const current = samples[i];
     const currentMs = new Date(current?.at || 0).getTime();
     if (!Number.isFinite(currentMs)) continue;
+    if (firstSampleMs === null) firstSampleMs = currentMs;
+    lastSampleMs = currentMs;
     if (firstSampleAt === null) firstSampleAt = new Date(currentMs).toISOString();
 
     const next = samples[i + 1];
@@ -36,6 +40,15 @@ export function buildAttendanceInsights(record) {
     } else if (classification === "away") {
       totalAwayMs += deltaMs;
       lastOutAt = new Date(currentMs).toISOString();
+    }
+  }
+
+  // If session had only neutral states (e.g. "checking"), avoid showing all 0s.
+  if (totalPresentMs === 0 && totalAwayMs === 0 && firstSampleMs !== null && lastSampleMs !== null) {
+    const observedMs = Math.max(0, lastSampleMs - firstSampleMs);
+    if (observedMs > 0) {
+      totalAwayMs = observedMs;
+      lastOutAt = new Date(lastSampleMs).toISOString();
     }
   }
 
