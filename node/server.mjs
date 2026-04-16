@@ -109,7 +109,7 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/react/*", (_req, res) => {
+app.get(/^\/react(?:\/.*)?$/, (_req, res) => {
   res.sendFile(path.join(reactDistPath, "index.html"));
 });
 
