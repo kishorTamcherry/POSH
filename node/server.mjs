@@ -61,12 +61,12 @@ const transporter = nodemailer.createTransport({
 
 const io = new Server(server, {
   cors: {
-    origin: frontendOrigin,
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
 
-app.use(cors({ origin: frontendOrigin }));
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 function validateEnv() {
