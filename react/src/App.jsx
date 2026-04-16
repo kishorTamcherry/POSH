@@ -38,6 +38,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [endingConversation, setEndingConversation] = useState(false);
+  const [sessionEndedScreen, setSessionEndedScreen] = useState(false);
   const [camOn, setCamOn] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const [aiSpeaking, setAiSpeaking] = useState(false);
@@ -227,26 +228,6 @@ function App() {
   const reportTrainingCompletion = async () => {
     // Deprecated path: completion is now persisted by backend from attendance ping.
     completionReportedRef.current = true;
-  };
-  const detectEndIntentWithAi = async (text) => {
-    if (!token) return false;
-    const userText = String(text || "").trim();
-    if (!userText) return false;
-    try {
-      const response = await fetch(`${API_BASE_URL}/ai/end-intent`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ text: userText }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) return false;
-      return Boolean(payload?.endIntent);
-    } catch {
-      return false;
-    }
   };
   const smoothUpsertAiMessage = (id, targetText) => {
     const safeTarget = typeof targetText === "string" ? targetText : "";
@@ -604,32 +585,27 @@ function App() {
               role: "user",
               text: parsed.text || "",
             });
-            if (parsed?.final && completionEligibleRef.current && !pendingAutoEndRef.current) {
-              pendingAutoEndRef.current = true;
-              void (async () => {
-                try {
-                  const wantsEnd = await detectEndIntentWithAi(parsed.text);
-                  if (!wantsEnd) return;
-                  await endConversation();
-                } finally {
-                  pendingAutoEndRef.current = false;
-                }
-              })();
-            }
             return;
           }
 
           if (topic === "posh.training.status") {
-            if (parsed?.type !== "training_completion_reached") return;
-            completionEligibleRef.current = true;
-            completionReportedRef.current = true;
-            appendMessage({
-              id: `sys-complete-${Date.now()}`,
-              role: "system",
-              text: "Training completion checkpoint reached.",
-            });
-            if (pendingAutoEndRef.current) {
+            if (parsed?.type === "training_completion_reached") {
+              completionEligibleRef.current = true;
+              completionReportedRef.current = true;
+              appendMessage({
+                id: `sys-complete-${Date.now()}`,
+                role: "system",
+                text: "Training completion checkpoint reached.",
+              });
+              if (pendingAutoEndRef.current) {
+                void endConversation();
+              }
+              return;
+            }
+            if (parsed?.type === "training_end_requested") {
+              if (endingConversation) return;
               void endConversation();
+              return;
             }
             return;
           }
@@ -811,6 +787,7 @@ function App() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || "Login failed.");
       setToken(payload.token);
+      setSessionEndedScreen(false);
       window.localStorage.setItem(TOKEN_STORAGE_KEY, payload.token);
       setStatus("connecting");
       clearInterval(timerRef.current);
@@ -1031,6 +1008,7 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       disconnectRealtime();
+      setSessionEndedScreen(true);
       appendMessage({
         id: `sys-end-${Date.now()}`,
         role: "system",
@@ -1173,9 +1151,11 @@ function App() {
 
   return (
     <CandidateSessionPage
+      sessionEndedScreen={sessionEndedScreen}
       interruptAi={interruptAi}
       disconnectAndLogout={() => {
         disconnectRealtime();
+        setSessionEndedScreen(false);
         window.localStorage.removeItem(TOKEN_STORAGE_KEY);
         setToken("");
         setMessages([]);

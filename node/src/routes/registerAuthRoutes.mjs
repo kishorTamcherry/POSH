@@ -69,6 +69,7 @@ export function registerAuthRoutes(app, deps) {
     CameraAttendance,
     CandidateInvitation,
     verifyHttpAuth,
+    internalApiKey,
     jwtSecret,
     otpExpiryMinutes,
     adminEmail,
@@ -345,6 +346,48 @@ export function registerAuthRoutes(app, deps) {
       return res.json({ endIntent });
     } catch (error) {
       return res.status(500).json({ message: error.message || "Failed to classify end intent." });
+    }
+  });
+
+  app.post("/internal/training/end-intent", async (req, res) => {
+    try {
+      const key = String(req.headers["x-internal-key"] || "");
+      if (!internalApiKey || key !== internalApiKey) {
+        return res.status(401).json({ message: "Unauthorized internal request." });
+      }
+
+      const text = String(req.body?.text || "").trim();
+      if (!text) {
+        return res.status(400).json({ message: "text is required." });
+      }
+      if (!openai) {
+        return res.status(503).json({ message: "AI service unavailable." });
+      }
+
+      const completion = await openai.chat.completions.create({
+        model: openAiModel || "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Classify whether the user's message clearly expresses intent to END/STOP/CLOSE the current training now. Return strict JSON only: {\"endIntent\":true|false}.",
+          },
+          { role: "user", content: text },
+        ],
+      });
+
+      const raw = String(completion.choices?.[0]?.message?.content || "").trim();
+      let endIntent = false;
+      try {
+        endIntent = Boolean(JSON.parse(raw)?.endIntent);
+      } catch {
+        endIntent = /"endIntent"\s*:\s*true/i.test(raw);
+      }
+
+      return res.json({ ok: true, endIntent });
+    } catch (error) {
+      return res.status(500).json({ message: error.message || "Failed to evaluate end intent." });
     }
   });
 }

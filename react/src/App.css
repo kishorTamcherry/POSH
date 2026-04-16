@@ -13,6 +13,35 @@
   overflow: hidden;
 }
 
+.session-ended-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.session-ended-card {
+  width: min(520px, 100%);
+  background: #fff;
+  border: 1px solid #e8e6e0;
+  border-radius: 14px;
+  padding: 28px 24px;
+  text-align: center;
+}
+
+.session-ended-card h2 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  color: #1a1a2e;
+}
+
+.session-ended-card p {
+  margin: 0 0 18px;
+  color: #555;
+  font-size: 14px;
+}
+
 .admin-root {
   min-height: 100vh;
   background: #f5f4f0;

@@ -1,4 +1,5 @@
 export function CandidateSessionPage({
+  sessionEndedScreen,
   interruptAi,
   disconnectAndLogout,
   sessionTimer,
@@ -22,6 +23,22 @@ export function CandidateSessionPage({
   liveSttText,
   socketError,
 }) {
+  if (sessionEndedScreen) {
+    return (
+      <main className="interview-root">
+        <div className="session-ended-wrap">
+          <div className="session-ended-card">
+            <h2>POSH training session completed</h2>
+            <p>You can close this window.</p>
+            <button className="icon-btn danger" onClick={disconnectAndLogout}>
+              Back to login
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="interview-root">
       <div className="topbar">

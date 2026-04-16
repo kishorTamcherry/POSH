@@ -108,6 +108,7 @@ registerAuthRoutes(app, {
   CameraAttendance,
   CandidateInvitation,
   verifyHttpAuth,
+  internalApiKey,
   jwtSecret,
   otpExpiryMinutes,
   adminEmail,

@@ -75,7 +75,27 @@ async function markTrainingCompletionInternally(roomName, isLastQuestion) {
   }
 }
 
-function forwardAssistantChatToRoom(session, room, aiSpeechIdRef) {
+async function detectEndIntentInternally(text) {
+  const transcript = String(text || "").trim();
+  if (!transcript || !internalApiKey) return false;
+  try {
+    const response = await fetch(`${apiBaseUrl}/internal/training/end-intent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-key": internalApiKey,
+      },
+      body: JSON.stringify({ text: transcript }),
+    });
+    if (!response.ok) return false;
+    const payload = await response.json().catch(() => ({}));
+    return Boolean(payload?.endIntent);
+  } catch {
+    return false;
+  }
+}
+
+function forwardAssistantChatToRoom(session, room, aiSpeechIdRef, trainingStateRef) {
   const { SpeechCreated } = voice.AgentSessionEventTypes;
   const forwardedItemIds = new Set();
   let completionEventSent = false;
@@ -127,6 +147,9 @@ function forwardAssistantChatToRoom(session, room, aiSpeechIdRef) {
         });
         if (!completionEventSent && !wasInterrupted && isLastQuestion) {
           completionEventSent = true;
+          if (trainingStateRef) {
+            trainingStateRef.completionReached = true;
+          }
           void markTrainingCompletionInternally(room?.name, true);
           publishJson(room, "posh.training.status", {
             type: "training_completion_reached",
@@ -146,6 +169,7 @@ export default defineAgent({
     let lastInterimTranscript = "";
     let lastInterimAtMs = 0;
     let userTurnSeq = 0;
+    const trainingStateRef = { completionReached: false };
 
     const session = new voice.AgentSession({
       stt: new deepgram.STT({
@@ -188,6 +212,17 @@ export default defineAgent({
       });
 
       if (event?.isFinal) {
+        if (trainingStateRef.completionReached) {
+          void (async () => {
+            const shouldEnd = await detectEndIntentInternally(transcript);
+            if (!shouldEnd) return;
+            publishJson(ctx.room, "posh.training.status", {
+              type: "training_end_requested",
+              text: transcript,
+              timestamp: Date.now(),
+            });
+          })();
+        }
         userTurnSeq += 1;
         lastInterimTranscript = "";
         lastInterimAtMs = 0;
@@ -229,7 +264,7 @@ export default defineAgent({
     await ctx.connect();
 
     const aiSpeechIdRef = { current: null };
-    forwardAssistantChatToRoom(session, ctx.room, aiSpeechIdRef);
+    forwardAssistantChatToRoom(session, ctx.room, aiSpeechIdRef, trainingStateRef);
 
     await session.start({
       room: ctx.room,
