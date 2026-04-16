@@ -188,8 +188,9 @@ export default defineAgent({
       turnHandling: {
         endpointing: {
           mode: "fixed",
-          minDelay: 1800,
-          maxDelay: 1800,
+          // End user turn only after ~4s of silence.
+          minDelay: 4000,
+          maxDelay: 4000,
         },
         interruption: {
           enabled: true,
