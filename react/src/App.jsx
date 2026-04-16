@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as cocoSsd from "@tensorflow-models/coco-ssd";
 import "@tensorflow/tfjs";
 import { LocalAudioTrack, Room, RoomEvent, Track } from "livekit-client";
+import { useLocation } from "react-router-dom";
 import { io } from "socket.io-client";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage.jsx";
 import { AdminLoginPage } from "./pages/AdminLoginPage.jsx";
@@ -26,6 +27,7 @@ const AVATAR_LOADER_STATUS = [
 ];
 
 function App() {
+  const location = useLocation();
   const [email, setEmail] = useState("demo@posh.app");
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
   const [otpRequested, setOtpRequested] = useState(false);
@@ -92,7 +94,7 @@ function App() {
   const pendingAutoEndRef = useRef(false);
 
   const isLoggedIn = Boolean(token);
-  const isAdminPath = useMemo(() => window.location.pathname.startsWith("/admin"), []);
+  const isAdminPath = useMemo(() => location.pathname.startsWith("/admin"), [location.pathname]);
   const isAdminLoggedIn = Boolean(adminToken);
   const visibleMessages = avatarReady ? messages : [];
   const userMessageCount = useMemo(
