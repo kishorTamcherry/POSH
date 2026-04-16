@@ -10,6 +10,20 @@ import { CandidateSessionPage } from "./pages/CandidateSessionPage.jsx";
 import "./App.css";
 
 const API_BASE_URL = "https://preprodadmin.zolio.ai/posh-api";
+const SOCKET_CONFIG = (() => {
+  try {
+    const parsed = new URL(API_BASE_URL);
+    return {
+      url: parsed.origin,
+      path: `${parsed.pathname.replace(/\/$/, "")}/socket.io`,
+    };
+  } catch {
+    return {
+      url: window.location.origin,
+      path: "/socket.io",
+    };
+  }
+})();
 const TOKEN_STORAGE_KEY = "posh_token";
 const ADMIN_TOKEN_STORAGE_KEY = "posh_admin_token";
 const AVATAR_LOADER_STEPS = [
@@ -699,8 +713,9 @@ function App() {
   };
 
   const connectSocket = (jwtToken) => {
-    const socket = io(API_BASE_URL, {
+    const socket = io(SOCKET_CONFIG.url, {
       transports: ["websocket"],
+      path: SOCKET_CONFIG.path,
       auth: { token: jwtToken },
     });
 
