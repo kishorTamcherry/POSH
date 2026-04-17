@@ -50,6 +50,7 @@ function App() {
   const [socketError, setSocketError] = useState("");
   const [liveSttText, setLiveSttText] = useState("");
   const [messages, setMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [endingConversation, setEndingConversation] = useState(false);
   const [sessionEndedScreen, setSessionEndedScreen] = useState(false);
@@ -752,6 +753,24 @@ function App() {
     socketRef.current = socket;
   };
 
+  const sendTextMessage = async () => {
+    const text = String(chatInput || "").trim();
+    if (!text) return;
+    appendMessage({
+      id: `user-text-${Date.now()}`,
+      role: "user",
+      text,
+    });
+    setChatInput("");
+    try {
+      if (livekitRoomRef.current?.localParticipant?.sendText) {
+        await livekitRoomRef.current.localParticipant.sendText(text, { topic: "lk.chat" });
+      }
+    } catch {
+      setSocketError("Could not send text message.");
+    }
+  };
+
   const requestOtp = async () => {
     if (!email || !email.includes("@")) {
       setEmailError(true);
@@ -1189,6 +1208,7 @@ function App() {
       avatarLoaderStatus={AVATAR_LOADER_STATUS}
       visibleMessages={visibleMessages}
       userMessageCount={userMessageCount}
+      chatInput={chatInput}
       transcriptBodyRef={transcriptBodyRef}
       avatarReady={avatarReady}
       aiSpeaking={aiSpeaking}
@@ -1198,6 +1218,8 @@ function App() {
       endingConversation={endingConversation}
       liveSttText={liveSttText}
       socketError={socketError}
+      onChatInputChange={(event) => setChatInput(event.target.value)}
+      onSendTextMessage={sendTextMessage}
     />
   );
 }

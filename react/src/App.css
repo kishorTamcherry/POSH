@@ -1522,6 +1522,7 @@
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+  align-items: center;
 }
 
 .ctrl-btn {
@@ -1560,6 +1561,55 @@
   border-radius: 12px;
   padding: 10px 16px;
   cursor: pointer;
+}
+
+.chat-input-row {
+  background: #fff;
+  border: 1px solid #e8e6e0;
+  border-radius: 16px;
+  padding: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-input-row.in-controls {
+  flex: 1;
+  border: none;
+  padding: 0;
+  min-width: 0;
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e2dff6;
+  background: #faf9ff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.chat-input:focus {
+  border-color: #7f77dd;
+  box-shadow: 0 0 0 2px rgba(127, 119, 221, 0.15);
+}
+
+.chat-send-btn {
+  border: none;
+  border-radius: 12px;
+  background: #7f77dd;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.chat-send-btn:disabled {
+  background: #b3aedf;
+  cursor: not-allowed;
 }
 
 .status-note {

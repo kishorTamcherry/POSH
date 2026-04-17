@@ -22,6 +22,9 @@ export function CandidateSessionPage({
   endingConversation,
   liveSttText,
   socketError,
+  chatInput,
+  onChatInputChange,
+  onSendTextMessage,
 }) {
   if (sessionEndedScreen) {
     return (
@@ -202,6 +205,24 @@ export function CandidateSessionPage({
           </div>
 
           <div className="controls-bar">
+            <div className="chat-input-row in-controls">
+              <input
+                className="chat-input"
+                type="text"
+                value={chatInput}
+                onChange={onChatInputChange}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onSendTextMessage();
+                  }
+                }}
+                placeholder="Type a message..."
+              />
+              <button className="chat-send-btn" onClick={onSendTextMessage} disabled={!chatInput?.trim()}>
+                Send
+              </button>
+            </div>
             <button
               className={`ptalk-btn ${status === "listening" ? "talking" : ""}`}
               onPointerDown={handleTalkPointerDown}
